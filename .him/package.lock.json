@@ -1,0 +1,108 @@
+{
+  "artifacts": [],
+  "contracts": {
+    "runtime_interfaces:0:.him/contracts/runtime.json": "sha256:16133d40427145d7e296fada939f842c15fa1c38befdafcfdd2d5a4903c1c235"
+  },
+  "entrypoints": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "him_adapter.server"
+      ],
+      "contract_digests": [
+        "sha256:16133d40427145d7e296fada939f842c15fa1c38befdafcfdd2d5a4903c1c235"
+      ],
+      "execution_mode": "local_python",
+      "id": "inference",
+      "image_digest": null,
+      "image_ref": null,
+      "resource_class": "cpu-standard",
+      "working_directory": "."
+    }
+  ],
+  "environment": {
+    "architecture": "any",
+    "cuda": null,
+    "dependencies_digest": null,
+    "platform": "portable",
+    "python": "3.12"
+  },
+  "extensions": {
+    "publication": {
+      "allow_downloads": false,
+      "allow_forks": false,
+      "redactions": [],
+      "result_trust": "him_reproduced",
+      "visibility": "private"
+    },
+    "tests": [
+      "smoke"
+    ],
+    "upload_inventory": [
+      {
+        "path": ".him/README.md",
+        "sha256": "8c383ee2a13640cb666e560f55b0fa1dfe481533fba214ebe7a9221c7e1f28de",
+        "size_bytes": 329,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/commands/README.md",
+        "sha256": "abb11962aa41907bc869fa9c5f27b1adcb823ecb98e0e58f224f206fafc50e59",
+        "size_bytes": 192,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/contracts/runtime.json",
+        "sha256": "16133d40427145d7e296fada939f842c15fa1c38befdafcfdd2d5a4903c1c235",
+        "size_bytes": 1585,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/fixtures/observation.json",
+        "sha256": "fc99893027a0eedbe7ca588de86a8dcb65411cd17dbf50dbbcbf40ee3cd4fb09",
+        "size_bytes": 108,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/him.yaml",
+        "sha256": "927cbb19ef1b7cc63b5c264b507d90f3d0ed453a2008706e1b7b5a2ecfd17002",
+        "size_bytes": 1826,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/publication.yaml",
+        "sha256": "adbd391bde49187d67ff50767b7a93bae176efa20549b83dcc6dfd87a41d8253",
+        "size_bytes": 213,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/tests/test_smoke.py",
+        "sha256": "2b4fb5aa82d7acab8c3b57f38f639041c6d1fc770be359219a603ce3430783de",
+        "size_bytes": 350,
+        "visibility": "private"
+      }
+    ]
+  },
+  "generated_at": "1970-01-01T00:00:00Z",
+  "generator": {
+    "name": "him",
+    "version": "1.0.0-local"
+  },
+  "lock_digest": "sha256:1aee81e7cece287ac038b9bcf81bc7a3585d8da8678892a912ed5c3de01e66d4",
+  "package": {
+    "kind": "brain",
+    "manifest_digest": "sha256:f81846408cc1ae668beb436401b26310a5cd3d9ba4e862de11cab2b3fd14f817",
+    "name": "my-policy",
+    "version": "0.1.0"
+  },
+  "schema_version": "1.0.0",
+  "source": {
+    "clean": false,
+    "commit": null,
+    "digest": "sha256:e820232af69c1fb5a830835a6378174e988d6f1081ca43981a69a34994dc1bba",
+    "repository": null,
+    "submodules": {},
+    "type": "git"
+  }
+}

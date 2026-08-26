@@ -15,7 +15,7 @@
     {
       "name": "robot.joint_position",
       "dtype": "float32",
-      "shape": ["JOINTS"],
+      "shape": [22],
       "unit": "rad",
       "coordinate_frame": "robot",
       "encoding": null,
@@ -30,7 +30,7 @@
     {
       "name": "robot.desired_joint_position",
       "dtype": "float32",
-      "shape": ["JOINTS"],
+      "shape": [22],
       "unit": "rad",
       "coordinate_frame": "robot",
       "encoding": null,
@@ -63,6 +63,21 @@
     "fallback_action": "hold"
   },
   "extensions": {
-    "template": true
+    "template": true,
+    "robot": {
+      "model": "booster-k1-22dof",
+      "source": "third_party/booster_assets/robots/K1/K1_22dof.urdf",
+      "source_repo": "https://github.com/BoosterRobotics/booster_assets",
+      "license": "BSD-3-Clause",
+      "dof": 22,
+      "joint_order": [
+        "AAHead_yaw", "Head_pitch",
+        "ALeft_Shoulder_Pitch", "Left_Shoulder_Roll", "Left_Elbow_Pitch", "Left_Elbow_Yaw",
+        "ARight_Shoulder_Pitch", "Right_Shoulder_Roll", "Right_Elbow_Pitch", "Right_Elbow_Yaw",
+        "Left_Hip_Pitch", "Left_Hip_Roll", "Left_Hip_Yaw", "Left_Knee_Pitch", "Left_Ankle_Pitch", "Left_Ankle_Roll",
+        "Right_Hip_Pitch", "Right_Hip_Roll", "Right_Hip_Yaw", "Right_Knee_Pitch", "Right_Ankle_Pitch", "Right_Ankle_Roll"
+      ],
+      "notes": "Canonical 22-joint order + limits come from the public Booster K1 URDF, which matches HIM's Adam table-tennis fixture DOF (22). UNCONFIRMED against HIM's server-side evaluator: this contract keeps the single-policy template's signal names (robot.joint_position / robot.desired_joint_position) and 50 Hz control clock, whereas HIM's Adam robot manifest uses joint_positions / joint_targets at 60 Hz (and its dataset was captured at 100 Hz). Reconcile with HIM before deployment."
+    }
   }
 }
