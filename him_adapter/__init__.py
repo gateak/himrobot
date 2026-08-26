@@ -1,3 +1,3 @@
-from .policy import HoldPolicy
+from .policy import BCPolicy, HoldPolicy, load_policy
 
-__all__ = ["HoldPolicy"]
+__all__ = ["HoldPolicy", "BCPolicy", "load_policy"]

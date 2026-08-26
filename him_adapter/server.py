@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import sys
 
-from .policy import HoldPolicy
+from .policy import load_policy
 
 
 def main() -> int:
-    policy = HoldPolicy()
+    policy = load_policy()
     for raw in sys.stdin:
         request = json.loads(raw)
         kind = request.get("type")

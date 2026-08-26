@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 *.swp
 .pytest_cache/
+.venv/
 data/
+models/
 *.pt
 *.ckpt
+.him/dist/
