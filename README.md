@@ -10,7 +10,7 @@ for humanoid table tennis."*
 | Track | Learns | From | Status |
 |---|---|---|---|
 | **Perception** | ball / scene 3D (`ball_state`) | Orbbec RGB-D sessions | not started (needs camera intrinsics + a detector) |
-| **Movement** | human swings → K1 22-joint reference motions | Rokoko mocap + paddle IMU | **first pass working** (IK retarget from paddle IMU) |
+| **Movement** | human swings → G1 reference motions | Rokoko mocap (FBX) | **working** (position retarget onto the G1, ~1.5 cm wrist error) |
 | **Control** | `joints + ball → desired joints` (the deployable policy) | imitation of movement demos + RL in sim | scaffolded (BC trainer + aligned contract) |
 
 Pipeline: `perception (ball) + movement (swings) → control (imitate + RL in sim) → him_adapter package → arena submit`.
@@ -41,19 +41,27 @@ python3.12 -m venv .venv
 ## Try it
 
 ```bash
-./.venv/bin/python sim/view_k1.py            # -> sim/k1_wave.gif (K1 waving)
-./.venv/bin/python sim/view_k1.py --live     # interactive 3D viewer
-./.venv/bin/python sim/retarget_imu.py       # -> sim/k1_retarget.gif (real swing on the K1)
+./scripts/fetch_assets.sh                    # fetch the K1 + G1 robot models
+./.venv/bin/python sim/g1_retarget.py        # -> sim/g1_retarget.gif (real human swing on the G1)
+./.venv/bin/python sim/view_k1.py --live     # interactive 3D viewer (K1)
 ~/.local/bin/him validate                    # validate the .him package
+
+# Reading the FBX mocap needs the python3.11 side-venv with Blender-as-a-module:
+python3.11 -m venv .venv-fbx && .venv-fbx/bin/pip install bpy numpy
+.venv-fbx/bin/python sim/fbx_extract.py -- <clip.fbx> data/mocap_clip4.npz
 ```
 
 ## The robot
 
-HIM's "Adam" is built on the public **Booster K1** (BSD-3-Clause,
-[github.com/BoosterRobotics/booster_assets](https://github.com/BoosterRobotics/booster_assets)):
-22 joints (2 head, 4+4 arms, 6+6 legs). The runtime contract
-(`.him/contracts/runtime.json`) is bound to this 22-joint layout; the canonical
-joint order lives in its `extensions.robot` block.
+**Current target: Unitree G1** (29-DOF humanoid, 7-DOF arm *with wrist* — from
+[mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)). The
+wrist is why the retargeted swing looks natural.
+
+Earlier reference: HIM's "Adam" = the public **Booster K1** (BSD-3-Clause,
+[booster_assets](https://github.com/BoosterRobotics/booster_assets)), 22 joints.
+The runtime contract (`.him/contracts/runtime.json`) is currently still bound to
+the K1's 22-joint layout (`extensions.robot`) — **migrating it to the G1's 29
+joints is a pending step**.
 
 ## Not in this repo (gitignored)
 

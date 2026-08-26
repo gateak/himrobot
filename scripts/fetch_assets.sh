@@ -14,7 +14,17 @@ else
   git clone --depth 1 https://github.com/BoosterRobotics/booster_assets third_party/booster_assets
 fi
 
+# Unitree G1 (current target robot): 29-DOF humanoid with a 7-DOF arm + wrist.
+# MuJoCo model from google-deepmind/mujoco_menagerie (sparse checkout).
+if [ -d third_party/mujoco_menagerie/.git ]; then
+  echo "mujoco_menagerie already present."
+else
+  git clone --depth 1 --filter=blob:none --sparse \
+    https://github.com/google-deepmind/mujoco_menagerie third_party/mujoco_menagerie
+  git -C third_party/mujoco_menagerie sparse-checkout set unitree_g1
+fi
+
 echo
-echo "K1 URDF:   third_party/booster_assets/robots/K1/K1_22dof.urdf"
 echo "K1 MuJoCo: third_party/booster_assets/robots/K1/K1_22dof.xml"
-echo "Done. Try:  ./.venv/bin/python sim/view_k1.py   (renders sim/k1_wave.gif)"
+echo "G1 MuJoCo: third_party/mujoco_menagerie/unitree_g1/g1.xml  (current target)"
+echo "Done. Try:  ./.venv/bin/python sim/g1_retarget.py   (real swing retargeted onto the G1)"

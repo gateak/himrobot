@@ -89,6 +89,10 @@ def main():
     import imageio
 
     ep, eul, n_all = load_episode(args.csv, args.episode)
+    eul = np.unwrap(eul, axis=0)                      # remove +/-pi euler wraps (kills 360-deg snaps)
+    if len(eul) >= 5:                                 # light smoothing of IMU jitter
+        k = np.ones(5) / 5
+        eul = np.stack([np.convolve(eul[:, i], k, mode="same") for i in range(3)], axis=1)
     stride = max(1, len(eul) // args.frames)
     eul = eul[::stride]
     print(f"episode {ep}: {n_all} samples -> {len(eul)} frames (stride {stride})")
