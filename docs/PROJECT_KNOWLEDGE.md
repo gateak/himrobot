@@ -19,7 +19,7 @@ not a mismatch to work around.
 | Track | Meaning | Status |
 |---|---|---|
 | **Movement** | human swings → robot reference motions | 🟢 **working on the G1** (position retarget, ~1.4 cm wrist error) |
-| **Perception** | ball / scene 3D (`ball_state`) from cameras | ⚪ not started (needs Orbbec intrinsics + a ball detector) |
+| **Perception** | ball / scene 3D (`ball_state`) from cameras | 🟡 2D orange-ball tracking works on real footage (`sim/ball_detect.py`, ~119/121 frames in a rally); 3D via depth or stereo+ArUco pending |
 | **Control** | `joints + ball → desired joints` (deployable hitter) | 🟡 scaffolded; blueprint = PPO in sim + ball predictor + mocap refs |
 
 **Pending / loose ends**
@@ -53,7 +53,7 @@ not a mismatch to work around.
 
 Raw human table-tennis capture — three unsynchronized streams (separate clocks; all carry absolute UTC/epoch timestamps so software alignment is feasible):
 - **Paddle IMU** (`him-table-tennis-paddle-imu-*.tar`): WitMotion, human-held paddle, ~11.11 Hz, 10 episodes, 20,741 samples. 12 real channels (accel×3 g, gyro×3 dps, euler×3 deg, mag×3 µT). `quaternion_*`/`chip_time` all null; `firmware`/`battery` constant.
-- **Orbbec RGB-D** (8 `orbbec_*.tar`): 2 cams, 640×480 @30fps, color JPG + depth PNG (mm, `align_depth_to_color:true`). **No intrinsics/extrinsics in the archive** (recover intrinsics from Orbbec SDK).
+- **Orbbec RGB-D** (8 `orbbec_*.tar`): **2 synced cams** (cam0/cam1 stereo pair), 640×480, color JPG + depth PNG (mm, `align_depth_to_color:true`); 60fps sessions are the rally sessions. Table has **ArUco markers at the corners** → metric table-frame calibration is possible (solvePnP + triangulation) without factory intrinsics. **The ball is ORANGE** on a dark-blue table → HSV color detection works (see `sim/ball_detect.py`). Beware a second held/spare orange ball + net-post clutter.
 - **Rokoko mocap** (`rokoko-fbx.tar`): 8 binary FBX clips, standard bone names (`Hips`, `Spine*`, `RightShoulder`→`RightArm`→`RightForeArm`→`RightHand`).
 - There is **no robot / no joint data** in the capture — `robot_version_id: null`. (Cleanup removed ~13 GB browser-duplicate tars + `.crdownload` partials; kept one canonical of each.)
 
@@ -71,7 +71,8 @@ Reference approaches (both: **model-based ball prediction → RL whole-body cont
 him_adapter/   Deployment policy server HIM runs (HoldPolicy fallback + BCPolicy).
 .him/          HIM overlay: manifest, runtime contract, fixtures, smoke test, lock.
 training/      PyTorch behavior-cloning scaffold.
-sim/           Local MuJoCo (un-gated): view_k1, k1_model, g1_model, fbx_extract, retarget_imu, g1_retarget.
+sim/           MuJoCo (un-gated): view_k1, k1_model, g1_model, fbx_extract, retarget_imu, g1_retarget;
+               perception: ball_detect.py (orange ball), orbbec_video.py (frames->mp4).
 scripts/       fetch_assets.sh (re-clone K1 + G1 models).
 docs/          THIS knowledge doc.
 ```
