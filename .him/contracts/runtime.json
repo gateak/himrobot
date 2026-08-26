@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0.0",
+  "interface_id": "my-policy-v1",
+  "description": "Minimal state-to-joint-position policy interface.",
+  "transport": "stdio",
+  "stateful": false,
+  "lifecycle": {
+    "health": "health",
+    "metadata": "metadata",
+    "reset": "reset",
+    "infer": "infer",
+    "close": "close"
+  },
+  "observations": [
+    {
+      "name": "robot.joint_position",
+      "dtype": "float32",
+      "shape": ["JOINTS"],
+      "unit": "rad",
+      "coordinate_frame": "robot",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Current joint positions."
+    }
+  ],
+  "actions": [
+    {
+      "name": "robot.desired_joint_position",
+      "dtype": "float32",
+      "shape": ["JOINTS"],
+      "unit": "rad",
+      "coordinate_frame": "robot",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "command_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Desired joint positions."
+    }
+  ],
+  "auxiliary_outputs": [],
+  "clock_domains": [
+    {
+      "id": "control",
+      "trigger": "fixed_rate",
+      "rate_hz": 50,
+      "deadline_ms": 15,
+      "hard_realtime": false,
+      "placement": "same_host"
+    }
+  ],
+  "batching": {
+    "supported": false,
+    "max_batch_size": 1,
+    "max_wait_ms": 0
+  },
+  "error_model": {
+    "retryable_codes": [],
+    "terminal_codes": ["INVALID_OBSERVATION"],
+    "fallback_action": "hold"
+  },
+  "extensions": {
+    "template": true
+  }
+}

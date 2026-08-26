@@ -1,0 +1,9 @@
+visibility: private
+source: private
+weights: private
+datasets: private
+results: private
+allow_forks: false
+allow_downloads: false
+requires_explicit_push_approval: true
+requires_explicit_publication_approval: true

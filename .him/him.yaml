@@ -1,0 +1,88 @@
+api_version: him.ai/v1
+kind: brain
+metadata:
+  name: my-policy
+  version: 0.1.0
+  display_name: My Policy
+  description:
+    A locally developed policy wrapped for HIM without changing the research
+    code.
+  authors:
+    - name: Your Lab
+      url: null
+  labels:
+    domain: example
+    template: single-policy
+source:
+  type: git
+  repository: null
+  commit: null
+  subdirectory: null
+  clean: false
+  source_digest: null
+entrypoints:
+  - id: inference
+    purpose: inference
+    execution_mode: local_python
+    command:
+      - python
+      - -m
+      - him_adapter.server
+    working_directory: .
+    image_ref: null
+    image_digest: null
+    runtime_interface_ref: .him/contracts/runtime.json
+    process_graph_ref: null
+    training_pipeline_ref: null
+    endpoint_profile_ref: null
+    resource_class: cpu-standard
+    network_policy: none
+    secret_refs: []
+    timeout_seconds: 600
+artifacts: []
+contracts:
+  runtime_interfaces:
+    - .him/contracts/runtime.json
+  process_graphs: []
+  training_pipelines: []
+  dataset_manifests: []
+  evaluator_manifests: []
+tests:
+  - id: smoke
+    type: smoke
+    command:
+      - python
+      - -m
+      - pytest
+      - -q
+      - .him/tests/test_smoke.py
+    required_for:
+      - push
+      - arena
+    timeout_seconds: 120
+    fixture_ref: .him/fixtures/observation.json
+compatibility:
+  robots: []
+  challenges: []
+  frameworks:
+    - custom-python
+  minimum_him_runtime: 1.0.0
+security:
+  untrusted_code: true
+  requires_sandbox: true
+  network_allowlist: []
+  hardware_deployment_allowed: false
+  signed_by: []
+provenance: {}
+license:
+  code: NOASSERTION
+  weights: NOASSERTION
+  data: NOASSERTION
+  commercial_use: unknown
+publication:
+  visibility: private
+  result_trust: him_reproduced
+  allow_forks: false
+  allow_downloads: false
+  redactions: []
+extensions: {}
