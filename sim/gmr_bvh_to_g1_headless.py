@@ -21,14 +21,6 @@ from multiprocessing import Pool
 import numpy as np
 
 
-def _make_retargeter(fmt, robot, height, ik_config):
-    from general_motion_retargeting import GeneralMotionRetargeting as GMR
-    from general_motion_retargeting import params
-    if ik_config:
-        params.IK_CONFIG_DICT[f"bvh_{fmt}"][robot] = os.path.abspath(ik_config)
-    return GMR(src_human=f"bvh_{fmt}", tgt_robot=robot, actual_human_height=height, verbose=False)
-
-
 def _write_joint_order(out_dir, names):
     with open(os.path.join(out_dir, "gmr_g1_joint_order.txt"), "w") as h:
         h.write("\n".join(names) + "\n")
@@ -43,7 +35,11 @@ def retarget(bvh_file, out, fmt, robot, fps, max_frames=None, human_height=None,
         frames = frames[:max_frames]
     if not frames:
         raise ValueError(f"{bvh_file}: 0 frames to retarget (clip empty or --max_frames {max_frames} truncated it to none)")
-    rt = _make_retargeter(fmt, robot, height, ik_config)
+    from general_motion_retargeting import GeneralMotionRetargeting as GMR
+    from general_motion_retargeting import params
+    if ik_config:
+        params.IK_CONFIG_DICT[f"bvh_{fmt}"][robot] = os.path.abspath(ik_config)
+    rt = GMR(src_human=f"bvh_{fmt}", tgt_robot=robot, actual_human_height=height, verbose=False)
     it = frames
     if progress:
         from tqdm import tqdm

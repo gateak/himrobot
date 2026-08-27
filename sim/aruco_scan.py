@@ -102,7 +102,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     summary = {"session": sess.name, "frames_per_cam": args.frames, "dicts": args.dicts, "cams": {}}
     for cam in cams:
-        rows, images, per_dict = scan_cam(sess, cam, args.frames, args.dicts)
+        _, images, per_dict = scan_cam(sess, cam, args.frames, args.dicts)
         ranked = sorted(per_dict.items(), key=lambda kv: (kv[1]["total_markers"], len(kv[1]["ids"])),
                         reverse=True)
         best = ranked[0][0] if ranked and ranked[0][1]["total_markers"] else None

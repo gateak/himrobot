@@ -127,25 +127,22 @@ def save_checkpoint(
     torch.save(ckpt, path)
 
 
-def _rebuild_from_meta(ckpt: dict) -> nn.Module:
-    kind = ckpt["model_kind"]
-    m = ckpt["model"]
-    residual = m.get("residual", False)  # pre-residual checkpoints default to a plain head
-    if kind == "mlp":
-        return MLPPolicy(ckpt["obs_dim"], ckpt["act_dim"], tuple(m["hidden"]), m.get("dropout", 0.0), residual)
-    if kind == "transformer":
-        return TinyTransformerPolicy(
-            ckpt["obs_dim"], ckpt["act_dim"], ckpt.get("context", 8),
-            m["d_model"], m["nhead"], m["layers"], m.get("dropout", 0.0), residual,
-        )
-    raise ValueError(f"unknown model kind in checkpoint: {kind!r}")
-
-
 def build_model_from_ckpt(ckpt: dict) -> nn.Module:
     """Reconstruct a model from a checkpoint dict and load its weights (eval mode)."""
     if ckpt.get("format") != CKPT_FORMAT:
         raise ValueError(f"unexpected checkpoint format: {ckpt.get('format')!r}")
-    model = _rebuild_from_meta(ckpt)
+    kind = ckpt["model_kind"]
+    m = ckpt["model"]
+    residual = m.get("residual", False)  # pre-residual checkpoints default to a plain head
+    if kind == "mlp":
+        model = MLPPolicy(ckpt["obs_dim"], ckpt["act_dim"], tuple(m["hidden"]), m.get("dropout", 0.0), residual)
+    elif kind == "transformer":
+        model = TinyTransformerPolicy(
+            ckpt["obs_dim"], ckpt["act_dim"], ckpt.get("context", 8),
+            m["d_model"], m["nhead"], m["layers"], m.get("dropout", 0.0), residual,
+        )
+    else:
+        raise ValueError(f"unknown model kind in checkpoint: {kind!r}")
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     return model

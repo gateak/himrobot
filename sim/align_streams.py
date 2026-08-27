@@ -170,10 +170,6 @@ def bvh_world_transform(joints, data, target: str) -> tuple[np.ndarray, np.ndarr
     return p, R
 
 
-def bvh_world_position(joints, data, target: str) -> np.ndarray:
-    return bvh_world_transform(joints, data, target)[0]
-
-
 def load_bvh_hand_speed(bvh_dir: Path, bone: str = "RightHand") -> dict:
     """{clip: {fps, duration, t, speed (m/s), ang_speed (deg/s), pos (m)}}. Frame 0 of every clip is a
     T-pose (all rotation channels 0 — Rokoko exports it, Blender keeps it), so it is dropped before

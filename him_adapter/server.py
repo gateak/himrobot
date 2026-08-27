@@ -5,7 +5,6 @@ import sys
 
 from .policy import (
     ACT_SIGNAL,
-    ERROR_INVALID_OBSERVATION,
     INTERFACE_ID,
     JOINT_COUNT,
     OBS_SIGNAL,
@@ -44,24 +43,23 @@ def main() -> int:
 
         try:
             request = json.loads(line)
-            if not isinstance(request, dict) or request.get("type") is None:
+            kind = request.get("type") if isinstance(request, dict) else None
+            if kind is None:
                 response = {"error": "invalid_request"}
+            elif kind == "health":
+                response = {"ok": True}
+            elif kind == "metadata":
+                response = _metadata_response(policy)
+            elif kind == "reset":
+                policy.reset(request.get("episode", {}))
+                response = {"ok": True}
+            elif kind == "infer":
+                response = policy.infer(request.get("observation", {}))
+            elif kind == "close":
+                print(json.dumps({"ok": True}), flush=True)
+                return 0
             else:
-                kind = request["type"]
-                if kind == "health":
-                    response = {"ok": True}
-                elif kind == "metadata":
-                    response = _metadata_response(policy)
-                elif kind == "reset":
-                    policy.reset(request.get("episode", {}))
-                    response = {"ok": True}
-                elif kind == "infer":
-                    response = policy.infer(request.get("observation", {}))
-                elif kind == "close":
-                    print(json.dumps({"ok": True}), flush=True)
-                    return 0
-                else:
-                    response = {"error": "unsupported_request", "type": kind}
+                response = {"error": "unsupported_request", "type": kind}
         except Exception:
             # Never let one malformed line kill the long-running stdio session.
             response = {"error": "invalid_request"}

@@ -52,9 +52,9 @@ def _build_xml(paddle: bool, table: bool) -> str:
     with open(G1_XML) as fh:
         text = fh.read()
     text = text.replace('meshdir="assets"', f'meshdir="{MESHDIR}"')
+    if paddle and _MARKER not in text:
+        raise RuntimeError("paddle-injection marker not found; vendored G1 XML changed?")
     if paddle:
-        if _MARKER not in text:
-            raise RuntimeError("paddle-injection marker not found; vendored G1 XML changed?")
         text = text.replace(_MARKER, _MARKER + "\n" + PADDLE_XML, 1)
     if table:
         text = text.replace("<worldbody>", "<worldbody>\n" + TABLE_XML, 1)

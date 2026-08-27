@@ -13,10 +13,9 @@ use of human motion as a reference.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
-
-import math
 
 import numpy as np
 
@@ -32,7 +31,7 @@ def unit(v):
 
 
 def torso_frame(hips, spine_top, shoulder):
-    """Right-handed [right, up, forward] frame from the human skeleton."""
+    """Orthonormal [right, up, forward] frame from the human skeleton."""
     up = unit(spine_top - hips)
     tmp = shoulder - spine_top          # roughly toward the right shoulder
     right = unit(tmp - np.dot(tmp, up) * up)
@@ -103,7 +102,7 @@ def main():
     cam = mujoco.MjvCamera(); cam.azimuth = 150; cam.elevation = -10; cam.distance = 3.0
     cam.lookat[:] = [0.7, 0.0, 0.85]
     renderer = mujoco.Renderer(model, height=420, width=560)
-    jacp = np.zeros((3, model.nv)); jacp2 = np.zeros((3, model.nv)); jacr = np.zeros((3, model.nv))
+    jacp = np.zeros((3, model.nv)); jacp2 = np.zeros((3, model.nv))
     W_EL = 0.6   # elbow weight (posture); the wrist stays the primary target
 
     def to_robot(human_pt, k):
@@ -135,8 +134,8 @@ def main():
         wt, et = wt_all[k], et_all[k]
         for _ in range(args.iters):
             mujoco.mj_forward(model, data)
-            mujoco.mj_jacBody(model, data, jacp, jacr, bid["wr"])
-            mujoco.mj_jacBody(model, data, jacp2, jacr, bid["el"])
+            mujoco.mj_jacBody(model, data, jacp, None, bid["wr"])
+            mujoco.mj_jacBody(model, data, jacp2, None, bid["el"])
             ew = wt - data.xpos[bid["wr"]]
             ee = et - data.xpos[bid["el"]]
             J = np.vstack([jacp[:, dadr], W_EL * jacp2[:, dadr]])       # 6x7 (wrist + elbow)

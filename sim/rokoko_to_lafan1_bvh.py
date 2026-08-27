@@ -20,7 +20,7 @@ the chain Hips>Spine>Spine1>Spine3>Spine2>Neck>Head is intact, and "Spine2"
 both Shoulders, matching LAFAN1 topology. Optionally finger bones can be
 dropped (--drop-fingers) which also removes their motion columns.
 """
-import argparse, hashlib, json, os, re, sys
+import argparse, hashlib, json, os, re
 
 RENAME = {
     "Hips": "Hips", "Spine1": "Spine", "Spine2": "Spine1", "Spine3": "Spine3",
@@ -37,8 +37,8 @@ for side in ("Left", "Right"):
 
 def rewrite(src, dst, drop_fingers=False):
     lines = open(src).read().splitlines()
-    out, keep_cols, col = [], [], 0
-    i, depth_drop = 0, None  # depth_drop: brace depth at which a dropped subtree started
+    out, keep_cols = [], []
+    depth_drop = None  # brace depth at which a dropped subtree started
     depth = 0
     in_motion = False
     for line in lines:

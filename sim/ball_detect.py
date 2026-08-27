@@ -313,7 +313,7 @@ def main():
     hit = [r for r in rows if r[2] is not None]
     print(f"{tag}: {len(hit)}/{n_img} frames with a ball candidate "
           f"({100.0 * len(hit) / max(1, n_img):.1f}%), frames {rows[0][0]}..{rows[-1][0]}")
-    for idx, t, d in hit[:10]:
+    for idx, _t, d in hit[:10]:
         print(f"  frame {idx}: u={d[0]:.1f} v={d[1]:.1f} r={d[2]:.1f}px")
 
     csv_path = os.path.join(args.out_dir, f"ball2d_{tag}.csv")

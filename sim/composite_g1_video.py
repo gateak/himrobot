@@ -399,10 +399,9 @@ def main():
             else:
                 f = used[j]; used_ids.add(j)
                 foot = read_color(f)
-                if ball_track:
-                    if f["idx"] in ball_track:
-                        n_ball_hits += 1
-                    foot = draw_ball(foot, f["idx"], ball_track, ball_frames_sorted, ball_has_depth, a.ball_trail)
+                if f["idx"] in ball_track:
+                    n_ball_hits += 1
+                foot = draw_ball(foot, f["idx"], ball_track, ball_frames_sorted, ball_has_depth, a.ball_trail)
                 rob = g1.render(f["csv_row"])
                 if a.mode == "side":
                     frame = np.concatenate([foot, rob], axis=1)

@@ -69,7 +69,6 @@ OUT_DIR = os.path.join(REPO, "work", "calib")
 TABLE_LENGTH = 2.74
 TABLE_WIDTH = 1.525
 TABLE_HALF_LEN = TABLE_LENGTH / 2.0
-NET_HEIGHT = 0.1525
 IMG_W, IMG_H = 640, 480
 
 # Marker ids per serial and their role in the half-table rectangle. Roles are
@@ -176,24 +175,18 @@ def collect_role(sess, cam, hits, rows_by_idx, role_id, depth_frames_target, win
             if d is not None:
                 per_point_readings[k].append(d)
 
-    Zs_mm, Zs_std_mm, Zs_n = [], [], []
+    Zs_mm = []
     for readings in per_point_readings:
         if not readings:
             raise SystemExit(f"{sess.name}/{cam}: id {role_id} has a corner/centre with zero valid depth reads")
         Zs_mm.append(float(np.median(readings)))
-        Zs_std_mm.append(float(np.std(readings)) if len(readings) > 1 else 0.0)
-        Zs_n.append(len(readings))
 
     return {
-        "id": role_id,
         "n_decoded": n_decoded,
-        "n_depth_frames_used": Zs_n[:4] + [Zs_n[4]],
         "corners_px": corners_px.tolist(),
         "corners_Z_m": [z / 1000.0 for z in Zs_mm[:4]],
-        "corners_Z_std_mm": Zs_std_mm[:4],
         "center_px": center_px.tolist(),
         "center_Z_m": Zs_mm[4] / 1000.0,
-        "center_Z_std_mm": Zs_std_mm[4],
     }
 
 

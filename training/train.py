@@ -110,8 +110,7 @@ def main() -> int:
         print(f"[warn] data dims ({obs.shape[1]}->{act.shape[1]}) differ from config "
               f"({cfg.obs_dim}->{cfg.act_dim}); using data dims. Update config for real data.")
         cfg.data.joints = act.shape[1]  # keep act_dim authoritative
-        if cfg.data.ball_key:
-            cfg.data.ball_key = None
+        cfg.data.ball_key = None
         cfg.data.csv_root_in_obs = False
         assert cfg.act_dim == act.shape[1]
 

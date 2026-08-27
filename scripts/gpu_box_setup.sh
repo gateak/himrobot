@@ -196,16 +196,8 @@ pip install -e "$PACE_DIR/rsl_rl"
 # ---------------------------------------------------------------------------
 echo "--- [7/9] Reference data workspace (${REFS_DIR}) ---"
 mkdir -p "$REFS_DIR"
-if [ -f "$REFS_TARBALL" ]; then
-  if [ -z "$(ls -A "$REFS_DIR" 2>/dev/null)" ]; then
-    tar -xzf "$REFS_TARBALL" -C "$REFS_DIR"
-    echo "Extracted ${REFS_TARBALL} -> ${REFS_DIR}"
-  else
-    echo "${REFS_DIR} already populated; skipping extraction (idempotent)."
-    echo "Remove ${REFS_DIR} and re-run to force a fresh extract."
-  fi
-else
-  echo "NOTE: ${REFS_TARBALL} not found on this box yet." 
+if [ ! -f "$REFS_TARBALL" ]; then
+  echo "NOTE: ${REFS_TARBALL} not found on this box yet."
   echo "Before Stage 1/2 of docs/TRAINING_PLAN.md, upload it from your workstation:"
   echo "  bash scripts/make_refs_tarball.sh   # builds work/pace/himrobot-refs.tgz locally"
   echo "  scp work/pace/himrobot-refs.tgz <user>@<this-box>:${REFS_TARBALL}"
@@ -214,6 +206,12 @@ else
   echo "with a sha256 manifest (see the tarball's manifest.sha256 to verify after scp)."
   echo "Stage 0 (unmodified PACE T1 smoke, below) does not need this — PACE has no"
   echo "consumer for our data yet (PACE_ANALYSIS.md §7) — so continuing without it."
+elif [ -n "$(ls -A "$REFS_DIR" 2>/dev/null)" ]; then
+  echo "${REFS_DIR} already populated; skipping extraction (idempotent)."
+  echo "Remove ${REFS_DIR} and re-run to force a fresh extract."
+else
+  tar -xzf "$REFS_TARBALL" -C "$REFS_DIR"
+  echo "Extracted ${REFS_TARBALL} -> ${REFS_DIR}"
 fi
 
 # ---------------------------------------------------------------------------

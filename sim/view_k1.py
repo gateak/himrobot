@@ -20,7 +20,6 @@ import math
 import os
 
 import mujoco
-import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 XML = os.path.join(REPO, "third_party/booster_assets/robots/K1/K1_22dof.xml")
@@ -51,8 +50,9 @@ def _apply_pose(model, data, t):
     mujoco.mj_resetData(model, data)
     for name, (amp, phase) in WAVE.items():
         adr = _qadr(model, name)
-        if adr is not None:
-            data.qpos[adr] = amp * math.sin(2 * math.pi * FREQ_HZ * t + phase)
+        if adr is None:
+            continue
+        data.qpos[adr] = amp * math.sin(2 * math.pi * FREQ_HZ * t + phase)
     mujoco.mj_forward(model, data)
 
 

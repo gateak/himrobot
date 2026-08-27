@@ -18,7 +18,7 @@ ACT_SIGNAL = "robot.desired_joint_position"
 ERROR_INVALID_OBSERVATION = "INVALID_OBSERVATION"
 
 
-def load_contract() -> dict:
+def load_contract() -> dict[str, object]:
     """Best-effort load of the runtime contract JSON. Returns {} if missing/unreadable."""
     try:
         return json.loads(CONTRACT_PATH.read_text())
@@ -26,7 +26,7 @@ def load_contract() -> dict:
         return {}
 
 
-def validate_observation(signals: object, expected_len: int = JOINT_COUNT) -> list | None:
+def validate_observation(signals: object, expected_len: int = JOINT_COUNT) -> list[int | float] | None:
     """Extract and validate ``robot.joint_position`` from an observation's signals.
 
     Returns the validated list of numbers (same objects/types as given, so
@@ -51,7 +51,7 @@ class HoldPolicy:
     """Safe template policy that returns the observed joint position."""
 
     def __init__(self) -> None:
-        self._last_hold: list | None = None
+        self._last_hold: list[int | float] | None = None
 
     def reset(self, episode: dict[str, object]) -> None:
         self._last_hold = None
@@ -74,8 +74,9 @@ class BCPolicy:
     """Deployment wrapper around a trained behavior-cloning checkpoint.
 
     Loads torch lazily so this module stays import-safe (and the smoke test
-    stays green) in environments without torch. Any per-step problem degrades
-    to the contract's "hold" fallback rather than raising.
+    stays green) in environments without torch. An invalid observation
+    degrades to the contract's "hold" fallback rather than raising; a
+    failure inside model inference itself still propagates.
     """
 
     def __init__(self, checkpoint_path: str = DEFAULT_CHECKPOINT):
@@ -95,7 +96,7 @@ class BCPolicy:
         self.act_mean = torch.tensor(n["act_mean"], dtype=torch.float32)
         self.act_std = torch.tensor(n["act_std"], dtype=torch.float32)
         self._history: list = []
-        self._last_hold: list | None = None
+        self._last_hold: list[int | float] | None = None
 
     def reset(self, episode: dict[str, object]) -> None:
         self._history = []

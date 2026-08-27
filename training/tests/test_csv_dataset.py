@@ -63,7 +63,7 @@ def test_csv_root_in_obs_appends_height_and_quat(tmp_path):
     a = _write_clip(tmp_path / "Clip_A.csv", 5, seed=3)
     cfg = _cfg(tmp_path)
     cfg.data.csv_root_in_obs = True
-    obs, act, episodes, source = build_arrays(cfg)
+    obs, act, _, source = build_arrays(cfg)
     assert obs.shape == (4, J + 5) and act.shape == (4, J)
     assert cfg.obs_dim == J + 5
     np.testing.assert_allclose(obs[:, :J], a[:-1, ROOT_COLS:], rtol=1e-6)
@@ -88,7 +88,7 @@ def test_csv_non_finite_raises(tmp_path):
 def test_single_frame_clip_is_skipped(tmp_path):
     _write_clip(tmp_path / "one.csv", 1, seed=4)
     _write_clip(tmp_path / "two.csv", 3, seed=5)
-    obs, act, episodes, _ = build_arrays(_cfg(tmp_path))
+    _, _, episodes, _ = build_arrays(_cfg(tmp_path))
     assert episodes == [(0, 2)]
 
 
@@ -110,7 +110,7 @@ def test_joint_order_file_checked_against_contract(tmp_path):
 
 def test_no_csv_falls_back_to_synthetic(tmp_path):
     cfg = _cfg(tmp_path / "empty")
-    obs, act, episodes, source = build_arrays(cfg)
+    obs, act, _, source = build_arrays(cfg)
     assert source == "synthetic"
     assert obs.shape[1] == J and act.shape[1] == J
 

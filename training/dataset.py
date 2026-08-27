@@ -173,7 +173,7 @@ def _synthetic(cfg):
                 ep_obs.append(np.concatenate([q, ball]).astype(np.float32))
             else:
                 ep_obs.append(q.astype(np.float32))
-            target = target + 0.01 * rng.standard_normal(J)  # observation noise
+            target = target + 0.01 * rng.standard_normal(J)  # action noise
             ep_act.append(target.astype(np.float32))
         n = len(ep_obs)
         obs_rows.extend(ep_obs)

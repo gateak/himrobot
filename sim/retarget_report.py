@@ -27,7 +27,6 @@ _SCENES = [os.path.join(REPO, "third_party", "mujoco_menagerie", "unitree_g1", "
 SCENE = os.environ.get("G1_SCENE") or next((c for c in _SCENES if os.path.isfile(c)), _SCENES[0])
 IK_MODEL = os.path.expanduser("~/him-tools/GMR/assets/unitree_g1/g1_mocap_29dof.xml")
 YUP_TO_ZUP = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float)  # same as GMR lafan1.py
-FOOT_R = 0.005  # Menagerie g1.xml class="foot" sphere radius
 
 
 # ---------------------------------------------------------------- BVH
