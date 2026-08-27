@@ -11,8 +11,13 @@ the ball and you are looking at the table/floor behind it.
 
 Metric XYZ needs the colour intrinsics (fx, fy, cx, cy [, distortion]) which
 are NOT stored in the session; nothing here guesses them. If you have them,
-pass ``--intrinsics k.json`` ({"fx":..,"fy":..,"cx":..,"cy":..}) and X, Y, Z
-(metres, camera frame) are added.
+pass ``--intrinsics k.json`` (``{"fx":..,"fy":..,"cx":..,"cy":..}``, or a full
+``work/calib/intrinsics_<serial>.json`` from ``sim/estimate_intrinsics.py``)
+and camera-frame ``X_cam, Y_cam, Z_cam`` (m) are added. If the JSON also
+carries a ``table_frame.camera_to_table_4x4`` (the estimate_intrinsics.py
+output does), ``X_table, Y_table, Z_table`` (m, table frame: origin at the
+net centre, x toward this camera's end line, y across the width, z up) are
+added too.
 
     ~/him-tools/cv-venv/bin/python sim/ball_3d.py \\
         --session data/orbbec_20260815_215350 --cam cam0
@@ -90,9 +95,16 @@ def main():
     if unit != "millimeters_uint16":
         print(f"WARNING: unexpected depth unit {unit!r}; depth_mm column assumes uint16 mm")
     K = None
+    M = None
     if args.intrinsics:
         with open(args.intrinsics) as f:
             K = json.load(f)
+        tf = K.get("table_frame")
+        if tf and tf.get("camera_to_table_4x4"):
+            M = np.array(tf["camera_to_table_4x4"], dtype=np.float64)
+            print(f"table_frame found ({tf.get('note', '')}) -> adding X_table/Y_table/Z_table")
+        else:
+            print("no table_frame in --intrinsics -> X_cam/Y_cam/Z_cam only")
 
     rows = {int(r["idx"]): r for r in sess.frames(cam)}
     with open(track) as f:
@@ -103,7 +115,9 @@ def main():
         w = csv.writer(f)
         cols = ["frame", "host_time_s", "u", "v", "radius", "depth_mm", "n_valid", "bg_depth_mm"]
         if K:
-            cols += ["X_m", "Y_m", "Z_m"]
+            cols += ["X_cam", "Y_cam", "Z_cam"]
+        if M is not None:
+            cols += ["X_table", "Y_table", "Z_table"]
         w.writerow(cols)
         for d in dets:
             fi = int(d["frame"])
@@ -128,9 +142,16 @@ def main():
                    "" if dm is None else f"{dm:.0f}", n, "" if bg is None else f"{bg:.0f}"]
             if K and dm is not None:
                 z = dm / 1000.0
-                row += [f"{(u - K['cx']) / K['fx'] * z:.4f}", f"{(v - K['cy']) / K['fy'] * z:.4f}", f"{z:.4f}"]
+                x_cam = (u - K["cx"]) / K["fx"] * z
+                y_cam = (v - K["cy"]) / K["fy"] * z
+                row += [f"{x_cam:.4f}", f"{y_cam:.4f}", f"{z:.4f}"]
+                if M is not None:
+                    p_table = M[:3, :3] @ np.array([x_cam, y_cam, z]) + M[:3, 3]
+                    row += [f"{p_table[0]:.4f}", f"{p_table[1]:.4f}", f"{p_table[2]:.4f}"]
             elif K:
                 row += ["", "", ""]
+                if M is not None:
+                    row += ["", "", ""]
             w.writerow(row)
     print(f"{tag}: {len(dets)} detections -> depth ok {n_ok}, all-zero disc {n_nodepth}, "
           f"no depth file {n_nofile}; frames.jsonl depth_scale values seen: {sorted(depth_scale_seen, key=str)}")
