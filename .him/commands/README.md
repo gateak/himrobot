@@ -15,4 +15,6 @@ Retargeting pipeline (`.him/contracts/training-pipeline.json`, all local CPU):
 
 Run: `him pipeline run .him/contracts/training-pipeline.json --yes --set gmr_python=... --set mujoco_python=...`
 
+Each stage's `cache.key_fields` is declarative documentation only; the local runner (`him_sdk/local_pipeline.py`) actually keys a stage's cache on its resolved command, parameters, and its dependencies' `output_digest` (a hash of each dependency's *declared outputs*), so the JSON summaries below carry per-clip hashes for anyone auditing what actually changed.
+
 Not configured: policy training (needs an NVIDIA runner), export, evaluation.

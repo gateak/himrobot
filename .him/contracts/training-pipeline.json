@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "pipeline_id": "rokoko-to-g1-motion-tracking-v1",
-  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) with the repo-local IK config sim/ik_configs/bvh_lafan1_rokoko_to_g1.json (rotation offsets re-derived for Rokoko/Blender identity rest frames; the upstream GMR bvh_lafan1_to_g1.json offsets assume LAFAN1 rest-bone frames and gave 50-69 cm mean wrist error on these clips vs 10-12 cm with this config, see docs/PROJECT_KNOWLEDGE.md section 4c) -> MuJoCo preview video. Every stage is local CPU code in this repository (sim/). Tracking-policy training is NOT configured (needs an NVIDIA runner).",
+  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) with the repo-local IK config sim/ik_configs/bvh_lafan1_rokoko_to_g1.json (rotation offsets re-derived for Rokoko/Blender identity rest frames; the upstream GMR bvh_lafan1_to_g1.json offsets assume LAFAN1 rest-bone frames and gave 50-69 cm mean wrist error on these clips vs 10-12 cm with this config, see docs/PROJECT_KNOWLEDGE.md section 4c) -> MuJoCo preview video. Every stage is local CPU code in this repository (sim/). Tracking-policy training is NOT configured (needs an NVIDIA runner). render_preview also declares the per-clip retargeted CSV (retarget_g1's ${work_dir}/g1/${preview_clip}.csv) as an input so the contract's declared dependencies match what the command actually reads, not only the joint-order file.",
   "parameters": {
     "python": "python3",
     "gmr_python": "/Users/akbar/him-tools/gmr-venv/bin/python",
@@ -237,6 +237,13 @@
           "uri": "${work_dir}/g1/gmr_g1_joint_order.txt",
           "format": "txt",
           "optional": false
+        },
+        {
+          "name": "preview_clip_csv",
+          "role": "retargeted_motion",
+          "uri": "${work_dir}/g1/${preview_clip}.csv",
+          "format": "csv",
+          "optional": false
         }
       ],
       "resumable": false,
@@ -244,10 +251,11 @@
       "cache": {
         "enabled": true,
         "key_fields": [
-          "rename_summary.sha256",
-          "robot",
+          "ik_config.sha256",
           "motion_fps",
-          "ik_config.sha256"
+          "preview_clip",
+          "rename_summary.sha256",
+          "robot"
         ]
       },
       "approval_gate": "none",
@@ -265,7 +273,7 @@
         "command": [
           "${mujoco_python}",
           "sim/play_g1_csv.py",
-          "${work_dir}/g1/${preview_clip}.csv",
+          "${preview_clip_csv}",
           "--joint-names",
           "${g1_joint_order}",
           "--scene",
@@ -290,6 +298,13 @@
           "uri": null,
           "format": "txt",
           "optional": false
+        },
+        {
+          "name": "preview_clip_csv",
+          "role": "retargeted_motion",
+          "uri": "${work_dir}/g1/${preview_clip}.csv",
+          "format": "csv",
+          "optional": false
         }
       ],
       "outputs": [
@@ -307,7 +322,8 @@
         "enabled": true,
         "key_fields": [
           "g1_joint_order.sha256",
-          "preview_clip"
+          "preview_clip",
+          "preview_clip_csv.sha256"
         ]
       },
       "approval_gate": "none",

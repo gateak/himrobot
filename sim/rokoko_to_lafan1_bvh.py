@@ -20,7 +20,7 @@ the chain Hips>Spine>Spine1>Spine3>Spine2>Neck>Head is intact, and "Spine2"
 both Shoulders, matching LAFAN1 topology. Optionally finger bones can be
 dropped (--drop-fingers) which also removes their motion columns.
 """
-import argparse, json, os, re, sys
+import argparse, hashlib, json, os, re, sys
 
 RENAME = {
     "Hips": "Hips", "Spine1": "Spine", "Spine2": "Spine1", "Spine3": "Spine3",
@@ -74,16 +74,28 @@ def rewrite(src, dst, drop_fingers=False):
     open(dst, "w").write("\n".join(out) + "\n")
 
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as h:
+        for chunk in iter(lambda: h.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def rewrite_tree(src_dir, dst_dir, drop_fingers=False):
     """Rewrite every *.bvh in src_dir into dst_dir; write dst_dir/rename-summary.json."""
     os.makedirs(dst_dir, exist_ok=True)
     files = sorted(f for f in os.listdir(src_dir) if f.endswith(".bvh"))
     if not files:
         raise SystemExit(f"no .bvh files under {src_dir}")
+    results = []
     for f in files:
-        rewrite(os.path.join(src_dir, f), os.path.join(dst_dir, f), drop_fingers)
+        src_path = os.path.join(src_dir, f)
+        dst_path = os.path.join(dst_dir, f)
+        rewrite(src_path, dst_path, drop_fingers)
+        results.append({"clip": f, "input_sha256": _sha256(src_path), "output_sha256": _sha256(dst_path)})
     summary = {"clips": files, "count": len(files), "drop_fingers": drop_fingers,
-               "rename_map": RENAME, "output": os.path.abspath(dst_dir)}
+               "rename_map": RENAME, "output": os.path.abspath(dst_dir), "results": results}
     path = os.path.join(dst_dir, "rename-summary.json")
     with open(path, "w") as h:
         json.dump(summary, h, indent=1, sort_keys=True); h.write("\n")

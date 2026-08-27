@@ -8,6 +8,7 @@ Pure stdlib; Blender does the parsing so no FBX SDK is needed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -51,6 +52,14 @@ json.dump(meta, open(meta_out, "w"), indent=1, sort_keys=True)
 '''
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def convert(blender: str, src: Path, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     bvh = out_dir / (src.stem + ".bvh")
@@ -68,7 +77,12 @@ def convert(blender: str, src: Path, out_dir: Path) -> dict:
     if completed.returncode != 0 or not bvh.is_file() or not meta.is_file():
         sys.stderr.write(completed.stdout[-4000:] + completed.stderr[-4000:])
         raise SystemExit(f"Blender conversion failed for {src}")
-    return json.loads(meta.read_text())
+    result = json.loads(meta.read_text())
+    result["source_path"] = str(src)
+    result["source_sha256"] = _sha256(src)
+    result["source_size"] = src.stat().st_size
+    result["bvh_sha256"] = _sha256(bvh)
+    return result
 
 
 def main() -> int:
@@ -83,8 +97,12 @@ def main() -> int:
     if not sources:
         raise SystemExit(f"no .fbx files under {args.input}")
     results = [convert(args.blender, src, args.output) for src in sources]
+    per_clip = [{"clip": src.stem, "source_path": r["source_path"], "source_sha256": r["source_sha256"],
+                 "source_size": r["source_size"], "frames": r["frames"], "fps": r["fps"],
+                 "bvh_sha256": r["bvh_sha256"]} for src, r in zip(sources, results)]
     summary = {"clips": len(results), "frames": sum(r["frames"] for r in results),
-               "fps": sorted({r["fps"] for r in results}), "output": str(args.output)}
+               "fps": sorted({r["fps"] for r in results}), "output": str(args.output),
+               "results": per_clip}
     (args.output / "conversion-summary.json").write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n")
     print(json.dumps(summary))
     return 0

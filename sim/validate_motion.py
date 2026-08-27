@@ -10,6 +10,7 @@ hierarchy, no NaN/inf values. Exit code 1 if any clip fails.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -45,8 +46,16 @@ def parse_bvh(path: Path) -> dict:
             "row_widths": sorted(widths), "non_finite_values": bad}
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def check(path: Path, expected_fps: float, root: str) -> dict:
-    report = {"file": path.name, "ok": True, "issues": []}
+    report = {"file": path.name, "ok": True, "issues": [], "sha256": _sha256(path)}
     try:
         info = parse_bvh(path)
     except Exception as exc:  # report, don't crash the batch
