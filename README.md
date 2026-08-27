@@ -10,7 +10,7 @@ for humanoid table tennis."*
 | Track | Learns | From | Status |
 |---|---|---|---|
 | **Perception** | ball / scene 3D (`ball_state`) | Orbbec RGB-D sessions | not started (needs camera intrinsics + a detector) |
-| **Movement** | human swings → G1 reference motions | Rokoko mocap (FBX) | **working** (position retarget onto the G1, ~1.5 cm wrist error) |
+| **Movement** | human swings → G1 reference motions | Rokoko mocap (FBX) | **working, full body** (GMR retarget of all 8 clips onto the 29-DoF G1; `him pipeline run` verified) |
 | **Control** | `joints + ball → desired joints` (the deployable policy) | imitation of movement demos + RL in sim | scaffolded (BC trainer + aligned contract) |
 
 Pipeline: `perception (ball) + movement (swings) → control (imitate + RL in sim) → him_adapter package → arena submit`.
@@ -24,6 +24,9 @@ him_adapter/     Deployment wrapper HIM runs: stdio policy server.
                  fixtures, smoke test, package lock.
 training/        PyTorch behavior-cloning scaffold (config, model, dataset, train).
 sim/             Local MuJoCo tools (no HIM servers, un-gated):
+                 fbx_to_bvh.py / rokoko_to_lafan1_bvh.py / gmr_bvh_to_g1_headless.py
+                                  – full-body mocap → G1 (29 DoF) retarget pipeline
+                 play_g1_csv.py   – play a retargeted clip live or render it to MP4
                  view_k1.py       – watch the K1 move (GIF or --live viewer)
                  k1_model.py      – load K1 with a paddle welded to the right hand
                  retarget_imu.py  – movement retarget: real paddle IMU → K1 swing
@@ -46,6 +49,12 @@ python3.12 -m venv .venv
 ./.venv/bin/python sim/view_k1.py --live     # interactive 3D viewer (K1)
 ~/.local/bin/him validate                    # validate the .him package
 
+# Full-body retarget of every Rokoko clip onto the G1, then a preview MP4 (needs Blender,
+# a GMR venv and a MuJoCo venv; see .him/commands/README.md):
+~/.local/bin/him pipeline run .him/contracts/training-pipeline.json --yes \
+  --set gmr_python=~/him-tools/gmr-venv/bin/python --set mujoco_python=~/him-tools/mujoco-venv/bin/python
+~/him-tools/mujoco-venv/bin/python sim/play_g1_csv.py work/g1/Clip_2.csv   # live viewer
+
 # Reading the FBX mocap needs the python3.11 side-venv with Blender-as-a-module:
 python3.11 -m venv .venv-fbx && .venv-fbx/bin/pip install bpy numpy
 .venv-fbx/bin/python sim/fbx_extract.py -- <clip.fbx> data/mocap_clip4.npz
@@ -59,9 +68,8 @@ wrist is why the retargeted swing looks natural.
 
 Earlier reference: HIM's "Adam" = the public **Booster K1** (BSD-3-Clause,
 [booster_assets](https://github.com/BoosterRobotics/booster_assets)), 22 joints.
-The runtime contract (`.him/contracts/runtime.json`) is currently still bound to
-the K1's 22-joint layout (`extensions.robot`) — **migrating it to the G1's 29
-joints is a pending step**.
+The runtime contract (`.him/contracts/runtime.json`) is bound to the G1's 29
+joints in Menagerie/Unitree-SDK order (`extensions.robot.joint_order`).
 
 ## Not in this repo (gitignored)
 

@@ -2,7 +2,7 @@
 
 Canonical, version-controlled project knowledge. Keep this current as decisions
 and findings land — this is the source of truth (not any external notes).
-_Last updated: 2026-08-26._
+_Last updated: 2026-08-26 (merged full-body G1 retarget + HIM datasets)._
 
 ---
 
@@ -18,12 +18,13 @@ not a mismatch to work around.
 
 | Track | Meaning | Status |
 |---|---|---|
-| **Movement** | human swings → robot reference motions | 🟢 **working on the G1** (position retarget, ~1.4 cm wrist error) |
+| **Movement** | human swings → robot reference motions | 🟢 **working on the G1, full body (29 DoF), all 8 clips** via GMR (`sim/gmr_bvh_to_g1_headless.py`); the older right-arm-only IK (`sim/g1_retarget.py`) is kept as a reference |
 | **Perception** | ball / scene 3D (`ball_state`) from cameras | 🟡 2D orange-ball tracking works on real footage (`sim/ball_detect.py`, ~119/121 frames in a rally); 3D via depth or stereo+ArUco pending |
 | **Control** | `joints + ball → desired joints` (deployable hitter) | 🟡 scaffolded; blueprint = PPO in sim + ball predictor + mocap refs |
 
 **Pending / loose ends**
-- Migrate `.him/contracts/runtime.json` from the K1's **22** joints to the G1's **29**.
+- ~~Migrate `.him/contracts/runtime.json` from the K1's 22 joints to the G1's 29.~~ Done 2026-08-26 (Menagerie/SDK order in `extensions.robot.joint_order`).
+- Train a G1 tracking policy on the retargeted CSVs (mjlab / BeyondMimic recipe; needs an NVIDIA machine — the CSV format `sim/gmr_bvh_to_g1_headless.py` emits is the Unitree/LAFAN1 CSV those recipes ingest).
 - Reconcile contract signal names / rate with HIM's server-side evaluator (unconfirmed).
 - Time-align the three capture streams (separate clocks) before the control track.
 - Compute at scale is gated (see §4); local MuJoCo is the un-gated path.
@@ -43,11 +44,22 @@ not a mismatch to work around.
 - **Gating:** real package execution is blocked server-side by a per-package worker gate (`package_worker_disabled`). Our first `him run` **failed** (reconcile-timeout); a built-in fixture control run succeeded, proving the plumbing is healthy — real code needs HIM to enable the worker. Package `my-policy@0.1.0` id `pkg_110ce5d185fa9ba3d703`; failed job `job_6be550b37b3337434d9a`.
 - **Approval gates (ask the user first):** `him login/run/push/publish`, `job launch`, `arena submit`, `dataset push` — anything that uploads source, spends credits, or launches compute.
 
+## 4b. HIM datasets (private, registered from this machine 2026-08-26)
+
+- `him-table-tennis-paddle-imu@1.0.0` → **`dataset_f410d4b7a08c0ab25d88`** (status ready; usable as `him run --dataset <id>`). Pushed from HIM's own manifest with `license.spdx_or_name` added.
+- Orbbec 214619 / 215350 and Rokoko mocap: manifests drafted + `him dataset validate` clean under `~/him-data/manifests/`, **not pushed** — license for locally captured data and the Rokoko session timestamp need confirmation.
+- `him capture inspect` / `dataset build` / `train rehearse` accept only `fixture_only` JSON in 0.1.3; raw-capture manifests must be hand-written.
+
+## 4c. Retargeting pipeline (`.him/contracts/training-pipeline.json`, `rokoko-to-g1-motion-tracking-v1`)
+
+Blender headless FBX→BVH (`sim/fbx_to_bvh.py`, ~1 min/clip) → `sim/validate_motion.py` → rename Rokoko "Newton" bones to LAFAN1 names (`sim/rokoko_to_lafan1_bvh.py`: Spine1→Spine, Spine2→Spine1, Spine4→Spine2, Thigh→UpLeg, Shin→Leg; GMR looks bones up by name, extra bones tolerated, cm + Y-up expected) → GMR `--robot unitree_g1 --format lafan1` (`sim/gmr_bvh_to_g1_headless.py`, ~350 fps on M4 Pro CPU; GMR hardcodes human height 1.75 m) → Unitree CSV (root xyz, quat **xyzw**, 29 joints in SDK order) → `sim/play_g1_csv.py` (live `launch_passive` or `--video`). Verified end-to-end under `him pipeline run` on 2026-08-26: 8 clips, 59,685 frames, 33 min of motion.
+Tool venvs live outside the repo (`~/him-tools/{gmr-venv,mujoco-venv,GMR,mujoco_menagerie}`); pass them via `--set gmr_python=… --set mujoco_python=…`.
+
 ## 5. The robot
 
 - **Current target: Unitree G1** (user directive). 29-DOF, **7-DOF arm with wrist** (`right_shoulder_pitch/roll/yaw`, `right_elbow`, `right_wrist_roll/pitch/yaw`), hand at `right_wrist_yaw_link`. Model: `mujoco_menagerie/unitree_g1/g1.xml` (+ `g1_mjx.xml` matches HIM's `mujoco_mjx`). The wrist is why retargeting looks natural. G1 also matches our contract's signal names.
 - **Earlier reference: Booster K1** = the real robot behind HIM's proprietary "Adam" fixture (public, **BSD-3**, `github.com/BoosterRobotics/booster_assets`, `robots/K1/K1_22dof.{urdf,xml}`). 22 DOF, wrist-less 4-DOF arm — orientation IK on it looked "crazy", which motivated the G1 switch. HIM's Adam manifest is `fixture_only`, `run_on_adam_enabled:false`.
-- **Contract:** `.him/contracts/runtime.json` obs `robot.joint_position` → action `robot.desired_joint_position`, currently bound to **[22]** (K1) with joint order in `extensions.robot`; 50 Hz, fallback "hold". Pending migration to G1's 29. `him validate` = valid.
+- **Contract:** `.him/contracts/runtime.json` obs `robot.joint_position` → action `robot.desired_joint_position`, bound to **[29]** (G1) with the Menagerie/SDK joint order in `extensions.robot.joint_order`; 50 Hz, fallback "hold". Signal names/rate still unconfirmed against HIM's evaluator. `him validate` = valid.
 
 ## 6. The data (`data/`, git-ignored, cleaned 2026-08-26)
 
@@ -72,6 +84,7 @@ him_adapter/   Deployment policy server HIM runs (HoldPolicy fallback + BCPolicy
 .him/          HIM overlay: manifest, runtime contract, fixtures, smoke test, lock.
 training/      PyTorch behavior-cloning scaffold.
 sim/           MuJoCo (un-gated): view_k1, k1_model, g1_model, fbx_extract, retarget_imu, g1_retarget;
+               full-body pipeline: fbx_to_bvh, validate_motion, rokoko_to_lafan1_bvh, gmr_bvh_to_g1_headless, play_g1_csv;
                perception: ball_detect.py (orange ball), orbbec_video.py (frames->mp4).
 scripts/       fetch_assets.sh (re-clone K1 + G1 models).
 docs/          THIS knowledge doc.

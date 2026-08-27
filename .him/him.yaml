@@ -1,18 +1,19 @@
 api_version: him.ai/v1
 kind: brain
 metadata:
-  name: my-policy
+  name: himrobot
   version: 0.1.0
-  display_name: My Policy
+  display_name: himrobot G1 table-tennis policy
   description:
-    A locally developed policy wrapped for HIM without changing the research
-    code.
+    Humanoid table-tennis policy for HIM Arena on the Unitree G1 (29 DoF). Ships
+    the stdio policy server (HoldPolicy fallback, BCPolicy when a checkpoint is
+    present) and the Rokoko-mocap-to-G1 retargeting pipeline.
   authors:
-    - name: Your Lab
+    - name: Akbar Sherzod Khamidov
       url: null
   labels:
-    domain: example
-    template: single-policy
+    domain: table-tennis
+    robot: unitree-g1
 source:
   type: git
   repository: null
@@ -44,7 +45,8 @@ contracts:
   runtime_interfaces:
     - .him/contracts/runtime.json
   process_graphs: []
-  training_pipelines: []
+  training_pipelines:
+    - contracts/training-pipeline.json
   dataset_manifests: []
   evaluator_manifests: []
 tests:
@@ -61,11 +63,37 @@ tests:
       - arena
     timeout_seconds: 120
     fixture_ref: .him/fixtures/observation.json
+  - id: pipeline-schema
+    type: schema
+    command:
+      - python
+      - -m
+      - him_sdk.cli
+      - pipeline
+      - validate
+      - .him/contracts/training-pipeline.json
+    required_for:
+      - push
+    timeout_seconds: 60
+    fixture_ref: null
+  - id: validate-motion-unit
+    type: smoke
+    command:
+      - python
+      - -m
+      - pytest
+      - -q
+      - .him/tests/test_validate_motion.py
+    required_for:
+      - push
+    timeout_seconds: 120
+    fixture_ref: null
 compatibility:
   robots: []
   challenges: []
   frameworks:
     - custom-python
+    - mujoco
   minimum_him_runtime: 1.0.0
 security:
   untrusted_code: true
@@ -73,7 +101,10 @@ security:
   network_allowlist: []
   hardware_deployment_allowed: false
   signed_by: []
-provenance: {}
+provenance:
+  robot_model: google-deepmind/mujoco_menagerie unitree_g1 (BSD-3-Clause)
+  retargeting: YanjieZe/GMR (MIT), run from a local venv
+  note: Kinematic retargeting only; no policy has been trained yet.
 license:
   code: NOASSERTION
   weights: NOASSERTION

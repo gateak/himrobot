@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "interface_id": "my-policy-v1",
-  "description": "Minimal state-to-joint-position policy interface.",
+  "interface_id": "himrobot-g1-v1",
+  "description": "State-to-joint-position policy interface for the Unitree G1 (29 DoF).",
   "transport": "stdio",
   "stateful": false,
   "lifecycle": {
@@ -15,7 +15,9 @@
     {
       "name": "robot.joint_position",
       "dtype": "float32",
-      "shape": [22],
+      "shape": [
+        29
+      ],
       "unit": "rad",
       "coordinate_frame": "robot",
       "encoding": null,
@@ -30,7 +32,9 @@
     {
       "name": "robot.desired_joint_position",
       "dtype": "float32",
-      "shape": [22],
+      "shape": [
+        29
+      ],
       "unit": "rad",
       "coordinate_frame": "robot",
       "encoding": null,
@@ -59,25 +63,51 @@
   },
   "error_model": {
     "retryable_codes": [],
-    "terminal_codes": ["INVALID_OBSERVATION"],
+    "terminal_codes": [
+      "INVALID_OBSERVATION"
+    ],
     "fallback_action": "hold"
   },
   "extensions": {
-    "template": true,
+    "template": false,
     "robot": {
-      "model": "booster-k1-22dof",
-      "source": "third_party/booster_assets/robots/K1/K1_22dof.urdf",
-      "source_repo": "https://github.com/BoosterRobotics/booster_assets",
+      "model": "unitree-g1-29dof",
+      "source": "third_party/mujoco_menagerie/unitree_g1/g1.xml",
+      "source_repo": "https://github.com/google-deepmind/mujoco_menagerie",
       "license": "BSD-3-Clause",
-      "dof": 22,
+      "dof": 29,
       "joint_order": [
-        "AAHead_yaw", "Head_pitch",
-        "ALeft_Shoulder_Pitch", "Left_Shoulder_Roll", "Left_Elbow_Pitch", "Left_Elbow_Yaw",
-        "ARight_Shoulder_Pitch", "Right_Shoulder_Roll", "Right_Elbow_Pitch", "Right_Elbow_Yaw",
-        "Left_Hip_Pitch", "Left_Hip_Roll", "Left_Hip_Yaw", "Left_Knee_Pitch", "Left_Ankle_Pitch", "Left_Ankle_Roll",
-        "Right_Hip_Pitch", "Right_Hip_Roll", "Right_Hip_Yaw", "Right_Knee_Pitch", "Right_Ankle_Pitch", "Right_Ankle_Roll"
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "left_wrist_pitch_joint",
+        "left_wrist_yaw_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+        "right_wrist_pitch_joint",
+        "right_wrist_yaw_joint"
       ],
-      "notes": "Canonical 22-joint order + limits come from the public Booster K1 URDF, which matches HIM's Adam table-tennis fixture DOF (22). UNCONFIRMED against HIM's server-side evaluator: this contract keeps the single-policy template's signal names (robot.joint_position / robot.desired_joint_position) and 50 Hz control clock, whereas HIM's Adam robot manifest uses joint_positions / joint_targets at 60 Hz (and its dataset was captured at 100 Hz). Reconcile with HIM before deployment."
+      "notes": "Joint order = MuJoCo Menagerie unitree_g1 actuator order, identical to the Unitree SDK2 G1JointIndex enum (sim/gmr_bvh_to_g1_headless.py writes the same order). UNCONFIRMED against HIM's server-side evaluator: signal names robot.joint_position / robot.desired_joint_position and the 50 Hz clock come from the HIM single-policy template; HIM's own G1 fixture (robot-unitree-g1-fixture) uses the same names at 50 Hz but is marked fixture-only with joint order not enumerated. Reconcile with HIM before deployment."
     }
   }
 }

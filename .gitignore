@@ -13,3 +13,6 @@ models/
 third_party/
 sim/*.gif
 sim/*.mp4
+work/
+.him/runs/
+.him/.registry/

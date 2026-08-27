@@ -1,7 +1,8 @@
 {
   "artifacts": [],
   "contracts": {
-    "runtime_interfaces:0:.him/contracts/runtime.json": "sha256:16133d40427145d7e296fada939f842c15fa1c38befdafcfdd2d5a4903c1c235"
+    "runtime_interfaces:0:.him/contracts/runtime.json": "sha256:716845318382412a1e1f8caea7b96b71562d66eabcb21101e58145c33e48a1bb",
+    "training_pipelines:0:contracts/training-pipeline.json": "sha256:ea3b2ecc8f3129f262c2d98067b0b8454333f5312798539a99ddaa7638594d92"
   },
   "entrypoints": [
     {
@@ -11,7 +12,7 @@
         "him_adapter.server"
       ],
       "contract_digests": [
-        "sha256:16133d40427145d7e296fada939f842c15fa1c38befdafcfdd2d5a4903c1c235"
+        "sha256:716845318382412a1e1f8caea7b96b71562d66eabcb21101e58145c33e48a1bb"
       ],
       "execution_mode": "local_python",
       "id": "inference",
@@ -26,7 +27,7 @@
     "cuda": null,
     "dependencies_digest": null,
     "platform": "portable",
-    "python": "3.12"
+    "python": "3.14"
   },
   "extensions": {
     "publication": {
@@ -37,7 +38,9 @@
       "visibility": "private"
     },
     "tests": [
-      "smoke"
+      "smoke",
+      "pipeline-schema",
+      "validate-motion-unit"
     ],
     "upload_inventory": [
       {
@@ -48,26 +51,32 @@
       },
       {
         "path": ".him/commands/README.md",
-        "sha256": "abb11962aa41907bc869fa9c5f27b1adcb823ecb98e0e58f224f206fafc50e59",
-        "size_bytes": 192,
+        "sha256": "6fd03f01e0f76b4b55af49fd57b25de4efb4cfbc0326e0726271f95f23c8e08e",
+        "size_bytes": 847,
         "visibility": "private"
       },
       {
         "path": ".him/contracts/runtime.json",
-        "sha256": "16133d40427145d7e296fada939f842c15fa1c38befdafcfdd2d5a4903c1c235",
-        "size_bytes": 1585,
+        "sha256": "716845318382412a1e1f8caea7b96b71562d66eabcb21101e58145c33e48a1bb",
+        "size_bytes": 3390,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/contracts/training-pipeline.json",
+        "sha256": "ea3b2ecc8f3129f262c2d98067b0b8454333f5312798539a99ddaa7638594d92",
+        "size_bytes": 8882,
         "visibility": "private"
       },
       {
         "path": ".him/fixtures/observation.json",
-        "sha256": "fc99893027a0eedbe7ca588de86a8dcb65411cd17dbf50dbbcbf40ee3cd4fb09",
-        "size_bytes": 108,
+        "sha256": "7c788ff330cab1b692bc6a34323a2549e90debe9d96b12a46e2569323c86da44",
+        "size_bytes": 418,
         "visibility": "private"
       },
       {
         "path": ".him/him.yaml",
-        "sha256": "927cbb19ef1b7cc63b5c264b507d90f3d0ed453a2008706e1b7b5a2ecfd17002",
-        "size_bytes": 1826,
+        "sha256": "1fe9a476f728e37629b2482a5f62447acbe976afd53558f2ce9698f997741c80",
+        "size_bytes": 2729,
         "visibility": "private"
       },
       {
@@ -78,8 +87,14 @@
       },
       {
         "path": ".him/tests/test_smoke.py",
-        "sha256": "2b4fb5aa82d7acab8c3b57f38f639041c6d1fc770be359219a603ce3430783de",
-        "size_bytes": 350,
+        "sha256": "f09ef292063f5e5008f582f19d9411ef95273e68d4db1b148d7bbc848df53f79",
+        "size_bytes": 859,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/tests/test_validate_motion.py",
+        "sha256": "68ac307c14af21ff952263fb3a2f30a2a8a61d03705779ce2ac6ef94db9e1da2",
+        "size_bytes": 1419,
         "visibility": "private"
       }
     ]
@@ -89,18 +104,18 @@
     "name": "him",
     "version": "1.0.0-local"
   },
-  "lock_digest": "sha256:1aee81e7cece287ac038b9bcf81bc7a3585d8da8678892a912ed5c3de01e66d4",
+  "lock_digest": "sha256:72489c7aa893b0584abd09d54542dd82a83dadc7716279b7b85ca43739b33e6a",
   "package": {
     "kind": "brain",
-    "manifest_digest": "sha256:f81846408cc1ae668beb436401b26310a5cd3d9ba4e862de11cab2b3fd14f817",
-    "name": "my-policy",
+    "manifest_digest": "sha256:658064aa371b571b4d42284b26bf909963818510c01a0eaae5eb6d0a17e32dfb",
+    "name": "himrobot",
     "version": "0.1.0"
   },
   "schema_version": "1.0.0",
   "source": {
     "clean": false,
     "commit": null,
-    "digest": "sha256:e820232af69c1fb5a830835a6378174e988d6f1081ca43981a69a34994dc1bba",
+    "digest": "sha256:04494fadc9a2c4174c19a8a075a94f71cb9651a3e7d20aa107970875cac56960",
     "repository": null,
     "submodules": {},
     "type": "git"

@@ -1,0 +1,336 @@
+{
+  "schema_version": "1.0.0",
+  "pipeline_id": "rokoko-to-g1-motion-tracking-v1",
+  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) -> MuJoCo preview video. Every stage is local CPU code in this repository (sim/). Tracking-policy training is NOT configured (needs an NVIDIA runner).",
+  "parameters": {
+    "python": "python3",
+    "gmr_python": "/Users/akbar/him-tools/gmr-venv/bin/python",
+    "mujoco_python": "/Users/akbar/him-tools/mujoco-venv/bin/python",
+    "g1_scene": "third_party/mujoco_menagerie/unitree_g1/scene.xml",
+    "fbx_dir": "data/rokoko-motion-capture",
+    "work_dir": "work",
+    "motion_fps": 30,
+    "robot": "unitree_g1",
+    "preview_clip": "Clip"
+  },
+  "stages": [
+    {
+      "id": "convert_fbx",
+      "stage_type": "ingest",
+      "depends_on": [],
+      "execution": {
+        "mode": "local",
+        "command": [
+          "${python}",
+          "sim/fbx_to_bvh.py",
+          "--input",
+          "${fbx_dir}",
+          "--output",
+          "${work_dir}/bvh"
+        ],
+        "image_ref": null,
+        "image_digest": null,
+        "resource_class": "cpu-standard",
+        "distributed": {
+          "strategy": "none",
+          "nodes": 1,
+          "gpus_per_node": 0
+        },
+        "environment": {}
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "conversion_summary",
+          "role": "conversion_report",
+          "uri": "${work_dir}/bvh/conversion-summary.json",
+          "format": "json",
+          "optional": false
+        }
+      ],
+      "resumable": false,
+      "checkpoint_interval_seconds": null,
+      "cache": {
+        "enabled": true,
+        "key_fields": [
+          "fbx_dir"
+        ]
+      },
+      "approval_gate": "none",
+      "failure_policy": "fail_pipeline",
+      "max_attempts": 1
+    },
+    {
+      "id": "validate_motion",
+      "stage_type": "validate",
+      "depends_on": [
+        "convert_fbx"
+      ],
+      "execution": {
+        "mode": "local",
+        "command": [
+          "${python}",
+          "sim/validate_motion.py",
+          "--input",
+          "${work_dir}/bvh",
+          "--output",
+          "${work_dir}/reports/motion-validation.json",
+          "--expected-fps",
+          "${motion_fps}"
+        ],
+        "image_ref": null,
+        "image_digest": null,
+        "resource_class": "cpu-standard",
+        "distributed": {
+          "strategy": "none",
+          "nodes": 1,
+          "gpus_per_node": 0
+        },
+        "environment": {}
+      },
+      "inputs": [
+        {
+          "name": "conversion_summary",
+          "role": "conversion_report",
+          "uri": null,
+          "format": "json",
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "motion_report",
+          "role": "validation_report",
+          "uri": "${work_dir}/reports/motion-validation.json",
+          "format": "json",
+          "optional": false
+        }
+      ],
+      "resumable": false,
+      "checkpoint_interval_seconds": null,
+      "cache": {
+        "enabled": true,
+        "key_fields": [
+          "conversion_summary.sha256",
+          "motion_fps"
+        ]
+      },
+      "approval_gate": "none",
+      "failure_policy": "fail_pipeline",
+      "max_attempts": 1
+    },
+    {
+      "id": "rename_bones",
+      "stage_type": "preprocess",
+      "depends_on": [
+        "validate_motion"
+      ],
+      "execution": {
+        "mode": "local",
+        "command": [
+          "${python}",
+          "sim/rokoko_to_lafan1_bvh.py",
+          "${work_dir}/bvh",
+          "${work_dir}/bvh_lafan1"
+        ],
+        "image_ref": null,
+        "image_digest": null,
+        "resource_class": "cpu-standard",
+        "distributed": {
+          "strategy": "none",
+          "nodes": 1,
+          "gpus_per_node": 0
+        },
+        "environment": {}
+      },
+      "inputs": [
+        {
+          "name": "motion_report",
+          "role": "validation_report",
+          "uri": null,
+          "format": "json",
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rename_summary",
+          "role": "preprocess_report",
+          "uri": "${work_dir}/bvh_lafan1/rename-summary.json",
+          "format": "json",
+          "optional": false
+        }
+      ],
+      "resumable": false,
+      "checkpoint_interval_seconds": null,
+      "cache": {
+        "enabled": true,
+        "key_fields": [
+          "motion_report.sha256"
+        ]
+      },
+      "approval_gate": "none",
+      "failure_policy": "fail_pipeline",
+      "max_attempts": 1
+    },
+    {
+      "id": "retarget_g1",
+      "stage_type": "retarget",
+      "depends_on": [
+        "rename_bones"
+      ],
+      "execution": {
+        "mode": "local",
+        "command": [
+          "${gmr_python}",
+          "sim/gmr_bvh_to_g1_headless.py",
+          "--bvh_dir",
+          "${work_dir}/bvh_lafan1",
+          "--out_dir",
+          "${work_dir}/g1",
+          "--robot",
+          "${robot}",
+          "--fps",
+          "${motion_fps}"
+        ],
+        "image_ref": null,
+        "image_digest": null,
+        "resource_class": "cpu-standard",
+        "distributed": {
+          "strategy": "none",
+          "nodes": 1,
+          "gpus_per_node": 0
+        },
+        "environment": {}
+      },
+      "inputs": [
+        {
+          "name": "rename_summary",
+          "role": "preprocess_report",
+          "uri": null,
+          "format": "json",
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "retarget_summary",
+          "role": "retargeted_motion",
+          "uri": "${work_dir}/g1/retarget-summary.json",
+          "format": "json",
+          "optional": false
+        },
+        {
+          "name": "g1_joint_order",
+          "role": "joint_order",
+          "uri": "${work_dir}/g1/gmr_g1_joint_order.txt",
+          "format": "txt",
+          "optional": false
+        }
+      ],
+      "resumable": false,
+      "checkpoint_interval_seconds": null,
+      "cache": {
+        "enabled": true,
+        "key_fields": [
+          "rename_summary.sha256",
+          "robot",
+          "motion_fps"
+        ]
+      },
+      "approval_gate": "none",
+      "failure_policy": "fail_pipeline",
+      "max_attempts": 1
+    },
+    {
+      "id": "render_preview",
+      "stage_type": "custom",
+      "depends_on": [
+        "retarget_g1"
+      ],
+      "execution": {
+        "mode": "local",
+        "command": [
+          "${mujoco_python}",
+          "sim/play_g1_csv.py",
+          "${work_dir}/g1/${preview_clip}.csv",
+          "--joint-names",
+          "${g1_joint_order}",
+          "--scene",
+          "${g1_scene}",
+          "--video",
+          "${work_dir}/preview/${preview_clip}_g1.mp4"
+        ],
+        "image_ref": null,
+        "image_digest": null,
+        "resource_class": "cpu-standard",
+        "distributed": {
+          "strategy": "none",
+          "nodes": 1,
+          "gpus_per_node": 0
+        },
+        "environment": {}
+      },
+      "inputs": [
+        {
+          "name": "g1_joint_order",
+          "role": "joint_order",
+          "uri": null,
+          "format": "txt",
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "preview_video",
+          "role": "preview_render",
+          "uri": "${work_dir}/preview/${preview_clip}_g1.mp4",
+          "format": "mp4",
+          "optional": false
+        }
+      ],
+      "resumable": false,
+      "checkpoint_interval_seconds": null,
+      "cache": {
+        "enabled": true,
+        "key_fields": [
+          "g1_joint_order.sha256",
+          "preview_clip"
+        ]
+      },
+      "approval_gate": "none",
+      "failure_policy": "fail_pipeline",
+      "max_attempts": 1
+    }
+  ],
+  "outputs": [
+    {
+      "name": "retarget_summary",
+      "role": "retargeted_motion",
+      "uri": null,
+      "format": "json",
+      "optional": false
+    },
+    {
+      "name": "preview_video",
+      "role": "preview_render",
+      "uri": null,
+      "format": "mp4",
+      "optional": false
+    }
+  ],
+  "promotion_gates": [],
+  "extensions": {
+    "not_yet_configured": "train (G1 tracking policy, mjlab/BeyondMimic recipe, needs NVIDIA GPU) and export/evaluate stages; add them only with real commands and a HIM Compute image.",
+    "upstream": {
+      "retargeting": "YanjieZe/GMR (MIT)",
+      "robot_model": "google-deepmind/mujoco_menagerie unitree_g1 (BSD-3)",
+      "fbx_import": "Blender 3.4.1"
+    },
+    "machine_specific_parameters": [
+      "gmr_python",
+      "mujoco_python"
+    ],
+    "setup": "scripts/fetch_assets.sh for the G1 model; data/rokoko-motion-capture from rokoko-fbx.tar; gmr_python = a venv with github.com/YanjieZe/GMR installed (pip install -e), mujoco_python = a venv with mujoco+imageio."
+  }
+}
