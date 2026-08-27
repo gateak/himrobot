@@ -27,6 +27,7 @@ import argparse
 import csv
 import json
 import os
+import sys
 import tarfile
 
 import cv2
@@ -99,18 +100,29 @@ class Session:
         return cv2.imdecode(np.frombuffer(b, np.uint8), flags)
 
 
-def iter_frames(sess, cam, start=0, count=None, step=1):
+def iter_frames(sess, cam, start=0, count=None, step=1, stats=None):
     """Yield (idx, host_time_s, bgr_image) for the requested frame rows.
 
     Rows whose color_file is null (dropped by the recorder) are skipped.
+    Rows whose color_file is present but fails to decode (corrupt/truncated
+    JPEG) are also skipped, but logged, so a batch of storage-corrupted
+    frames doesn't look like an ordinary recorder gap. If `stats` (a dict)
+    is given, "null_color_file" and "decode_failed" counts are accumulated
+    into it so a caller can report the totals.
     """
     rows = sess.frames(cam)
     end = len(rows) if count is None else min(len(rows), start + count)
     for r in rows[start:end:step]:
         if not r.get("color_file"):
+            if stats is not None:
+                stats["null_color_file"] = stats.get("null_color_file", 0) + 1
             continue
         img = sess.read_image(cam, r["color_file"])
         if img is None:
+            if stats is not None:
+                stats["decode_failed"] = stats.get("decode_failed", 0) + 1
+            print(f"warn: {cam}/{r['color_file']} (frame {r.get('idx')}) present but failed to decode; skipping",
+                  file=sys.stderr)
             continue
         yield r["idx"], float(r["host_time_s"]), img
 
@@ -224,7 +236,14 @@ def roi_from_aruco(json_path, cam, dict_name=None):
     with open(json_path) as f:
         j = json.load(f)
     c = j["cams"][cam]
-    d = c["per_dict"][dict_name or c["best_dict"]]
+    key = dict_name or c["best_dict"]
+    if key is None:
+        raise SystemExit(f"roi_from_aruco: no ArUco markers were found for cam {cam!r} in {json_path} "
+                          "(best_dict is null); pass --roi-json for a session/cam where markers were detected")
+    if key not in c["per_dict"]:
+        raise SystemExit(f"roi_from_aruco: dict {key!r} has no markers for cam {cam!r} in {json_path} "
+                          f"(available: {sorted(c['per_dict'])})")
+    d = c["per_dict"][key]
     pts = np.array([p for v in d["ids"].values() for p in v["corners_px_median"]], np.float32)
     return cv2.convexHull(pts).reshape(-1, 2)
 
@@ -278,13 +297,18 @@ def main():
                        static_reject=args.static_reject, near_big=args.near_big)
     rows = []                       # (idx, t, (x, y, r) | None)
     n_img = 0
-    for idx, t, img in iter_frames(sess, cam, args.start, args.count, args.step):
+    frame_stats = {}
+    for idx, t, img in iter_frames(sess, cam, args.start, args.count, args.step, stats=frame_stats):
         d = det(img)
         rows.append((idx, t, d))
         n_img += 1
     if not rows:
         print("no frames")
         return 1
+
+    if frame_stats.get("decode_failed"):
+        print(f"{tag}: {frame_stats['decode_failed']} color frame(s) present on disk but failed to decode "
+              "(corrupt/truncated); skipped, not counted as recorder drops")
 
     hit = [r for r in rows if r[2] is not None]
     print(f"{tag}: {len(hit)}/{n_img} frames with a ball candidate "

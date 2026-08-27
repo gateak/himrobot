@@ -58,6 +58,7 @@ tests:
       - pytest
       - -q
       - .him/tests/test_smoke.py
+      - .him/tests/test_server.py
     required_for:
       - push
       - arena

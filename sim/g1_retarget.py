@@ -152,7 +152,7 @@ def main():
         renderer.update_scene(data, camera=cam)
         frames.append(renderer.render())
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     imageio.mimsave(args.out, frames, fps=args.fps)
     errs = np.array(errs)
     print(f"[g1_retarget] wrote {args.out} ({len(frames)} frames @ {args.fps}fps)")

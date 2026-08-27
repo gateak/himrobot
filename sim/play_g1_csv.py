@@ -29,7 +29,7 @@ if a.joint_names is None:
 
 m = mujoco.MjModel.from_xml_path(a.scene)
 d = mujoco.MjData(m)
-data = np.loadtxt(a.csv, delimiter=",")
+data = np.loadtxt(a.csv, delimiter=",", ndmin=2)
 names = [l.strip() for l in open(a.joint_names) if l.strip()]
 assert data.shape[1] == 7 + len(names), (data.shape, len(names))
 qadr = []

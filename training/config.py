@@ -93,8 +93,10 @@ class ModelConfig:
     hidden: tuple[int, ...] = (256, 256)
     dropout: float = 0.0
     residual: bool = True                           # predict a delta on top of the current joints (see model.py)
-    # transformer-only:
-    context: int = 1                                # history window (1 == feedforward)
+    # transformer-only (ignored for "mlp", which always trains/serves at context 1):
+    context: int = 8                                 # history window; 1 works too (no crash), just
+                                                      # degenerates to single-step attention -- see
+                                                      # training/model.py:TinyTransformerPolicy
     d_model: int = 128
     nhead: int = 4
     layers: int = 2

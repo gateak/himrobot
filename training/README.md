@@ -43,7 +43,21 @@ shape check in `BCPolicy.infer` and falls back to hold.
 Model note: the heads are **residual** (`output = current joints + net(x)`,
 zero-initialised, in normalized space) so training starts exactly at the hold
 policy. Without this a plain MLP was ~12× worse than hold after 3 epochs on
-this data. `--no-residual` restores the plain head.
+this data. `--no-residual` restores the plain head. The "exact hold" identity
+requires the obs and action normalization stats to agree on the shared joint
+columns; `training.dataset.compute_norm_stats` enforces that (see
+`training/tests/test_residual_hold.py`).
+
+`--model transformer` defaults to `--context 8` (a plain `--model transformer`
+with no `--context` is a reasonable first try and must not crash or silently
+degrade to something useless); `--context 1` also works, it just collapses
+the window to single-step attention with no history, same as the MLP. `mlp`
+always trains/serves at context 1 regardless of `--context`.
+
+`--joints N` that disagrees with the runtime contract's `joint_order` length
+(29) prints a `[warn]`: the checkpoint still trains and saves fine, but its
+`joint_order` field is informational-only metadata and won't label the
+`act_dim=N` outputs correctly in that case.
 
 ## Data sources (auto-selected from `--root`)
 

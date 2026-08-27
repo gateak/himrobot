@@ -22,7 +22,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from .config import Config
-from .dataset import build_arrays, make_windows, split_indices
+from .dataset import build_arrays, compute_norm_stats, make_windows, split_indices
 from .model import build_model, save_checkpoint
 
 
@@ -48,7 +48,9 @@ def _parse_args(cfg: Config) -> Config:
     p.add_argument("--ball", action="store_true", help="concat ball_state to observation (parquet/synthetic)")
     p.add_argument("--csv-root-obs", action="store_true",
                    help="CSV source: append root height + quat xyzw to obs (not deployable via him_adapter)")
-    p.add_argument("--context", type=int, default=cfg.model.context, help="transformer history window")
+    p.add_argument("--context", type=int, default=cfg.model.context,
+                   help="transformer history window (ignored for --model mlp, which is always 1); "
+                        "1 works but degenerates to single-step attention, no history")
     p.add_argument("--no-residual", action="store_true", help="plain head instead of hold + delta")
     p.add_argument("--val-split", choices=["random", "episode"], default=cfg.train.val_split,
                    help="random = per-step split; episode = hold out whole clips")
@@ -113,25 +115,30 @@ def main() -> int:
         cfg.data.csv_root_in_obs = False
         assert cfg.act_dim == act.shape[1]
 
+    if len(cfg.data.joint_order) != cfg.data.joints:
+        print(f"[warn] joint_order has {len(cfg.data.joint_order)} names (from "
+              f".him/contracts/runtime.json) but act_dim is {cfg.data.joints} (--joints, or the "
+              f"data's own width); the checkpoint's joint_order metadata will not match its "
+              f"{cfg.data.joints} outputs and is informational only -- do not use it to label them.")
+
     X, Y = make_windows(obs, act, episodes, cfg.context)
     n = len(X)
     train_idx, val_idx = split_indices(n, episodes, cfg.train.val_frac, cfg.train.seed, cfg.train.val_split)
     print(f"split           : {cfg.train.val_split}, train {len(train_idx)} / val {len(val_idx)}")
 
-    # normalization from TRAIN only (last obs frame drives obs stats for windowed input)
-    obs_flat_train = X[train_idx].reshape(-1, X.shape[-1])
-    obs_mean = obs_flat_train.mean(0)
-    obs_std = obs_flat_train.std(0) + 1e-6
-    act_mean = Y[train_idx].mean(0)
-    act_std = Y[train_idx].std(0) + 1e-6
+    # normalization from TRAIN only. The first act_dim obs columns (the current
+    # joints) are forced onto the action's own stats -- see compute_norm_stats --
+    # so a zero-init residual head exactly reproduces "hold" (training/model.py).
+    obs_mean, obs_std, act_mean, act_std = compute_norm_stats(X[train_idx], Y[train_idx], cfg.act_dim)
 
     Xn = (X - obs_mean) / obs_std
     Yn = (Y - act_mean) / act_std
 
     Xt = torch.from_numpy(Xn.astype(np.float32))
     Yt = torch.from_numpy(Yn.astype(np.float32))
-    if cfg.context <= 1:
-        Xt = Xt.squeeze(1)  # MLP wants [B, obs_dim]
+    if cfg.model.kind == "mlp":
+        Xt = Xt.squeeze(1)  # MLP wants [B, obs_dim]; transformer always wants [B, T, obs_dim],
+                             # even at context 1 -- squeezing that too crashes its 3-D forward.
 
     train_ds = TensorDataset(Xt[train_idx], Yt[train_idx])
     val_ds = TensorDataset(Xt[val_idx], Yt[val_idx])

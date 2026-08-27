@@ -227,6 +227,31 @@ def make_windows(obs, act, episodes, context: int):
     return np.asarray(xs, np.float32), np.asarray(ys, np.float32)
 
 
+def compute_norm_stats(X: np.ndarray, Y: np.ndarray, act_dim: int):
+    """Per-feature (mean, std) for obs windows ``X`` [N,T,obs_dim] and actions
+    ``Y`` [N,act_dim], with the first ``act_dim`` obs columns forced to use the
+    *action's* statistics.
+
+    Those columns are the current joints, the same physical quantity (and, for
+    every source in this module, the same units) as the action -- see the
+    module docstring and ``build_arrays``. Fitting them independently (obs
+    stats over ``X``, action stats over ``Y``) makes the two normalizations
+    drift apart whenever the obs and action distributions differ even
+    slightly, which silently breaks the residual heads' "zero-init == hold"
+    identity (``training/model.py``): denormalizing a zero-init prediction
+    with the action stats no longer reproduces the raw current-joint value.
+    Aligning the stats here keeps that identity exact regardless of how obs
+    and act happen to be distributed.
+    """
+    obs_mean = X.reshape(-1, X.shape[-1]).mean(0)
+    obs_std = X.reshape(-1, X.shape[-1]).std(0) + 1e-6
+    act_mean = Y.mean(0)
+    act_std = Y.std(0) + 1e-6
+    obs_mean[:act_dim] = act_mean
+    obs_std[:act_dim] = act_std
+    return obs_mean, obs_std, act_mean, act_std
+
+
 def split_indices(n: int, episodes, val_frac: float, seed: int, mode: str = "random"):
     """Deterministic (train_idx, val_idx) over the N windowed samples.
 

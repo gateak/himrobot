@@ -269,7 +269,7 @@ def parse_fbx_header(path: Path) -> dict:
                 if c[0] == "Properties70":
                     for p in c[2]:
                         if p[1][0] in ("TimeMode", "TimeSpanStart", "TimeSpanStop", "CustomFrameRate", "UnitScaleFactor", "UpAxis"):
-                            out["global_" + p[1][0]] = p[1][4]
+                            out["global_" + p[1][0]] = p[1][4] if len(p[1]) > 4 else ""
         elif name == "Objects":
             out["anim_stacks"] = [c[1][1].split("\x00")[0] for c in ch if c[0] == "AnimationStack"]
         elif name == "Takes":
@@ -307,8 +307,16 @@ def load_orbbec(session_dir: Path) -> dict:
                               "median_dt_s": float(np.median(np.diff(ht))) if len(ht) > 1 else None,
                               "host_time_s": ht, "rows": rows}
     name = session_dir.name  # orbbec_YYYYMMDD_HHMMSS[_60fps]
-    stamp = name.split("_")[1] + name.split("_")[2]
-    return {"dir": str(session_dir), "name": name, "launch_local_naive": dt.datetime.strptime(stamp, "%Y%m%d%H%M%S"),
+    parts = name.split("_")
+    if len(parts) < 3:
+        raise ValueError(f"session directory name {name!r} doesn't match orbbec_<date>_<time>[...] "
+                         "(need at least 3 underscore-separated parts)")
+    stamp = parts[1] + parts[2]
+    try:
+        launch = dt.datetime.strptime(stamp, "%Y%m%d%H%M%S")
+    except ValueError as ex:
+        raise ValueError(f"session directory name {name!r}: bad timestamp {stamp!r} ({ex})") from ex
+    return {"dir": str(session_dir), "name": name, "launch_local_naive": launch,
             "session": sess, "cams": cams}
 
 
@@ -331,20 +339,31 @@ def orbbec_motion_stats(sess: dict, cam: str, cache_dir: Path) -> np.ndarray:
             d = np.abs(g - prev)
             out.append([r["host_time_s"], d.mean(), np.percentile(d, 95), np.percentile(d, 99), d.max(), (d > 25).mean()])
         prev = g
-    arr = np.array(out)
+    arr = np.array(out) if out else np.empty((0, 6))  # keep 2D even with 0 or 1 color frames (no pairs to diff)
     np.save(cache, arr)
     return arr
 
 
 def orbbec_motion_signal(sess: dict, cam: str, rate: float, cache_dir: Path, column: int = 1) -> tuple[np.ndarray, np.ndarray]:
     m = orbbec_motion_stats(sess, cam, cache_dir)
+    if m.shape[0] == 0:  # 0 or 1 color frames for this cam: no frame-diff pairs to build a signal from
+        return np.empty(0), np.empty(0)
     ts, en = m[:, 0], m[:, column]
     grid = np.arange(ts[0], ts[-1], 1.0 / rate)
     return grid, np.interp(grid, ts, en)
 
 
 # ----------------------------------------------------------------------------- alignment maths
-def resample(t: np.ndarray, x: np.ndarray, rate: float, smooth_s: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+def resample(t: np.ndarray, x: np.ndarray, rate: float, smooth_s: float = 0.0, label: str = "") -> tuple[np.ndarray, np.ndarray]:
+    if len(t) > 1:
+        gaps = np.diff(t)
+        big = gaps > 1.0
+        if big.any():
+            # Flagged, not fixed: still bridged by the same straight-line interp as before (numeric
+            # output for existing data is unchanged) -- this just surfaces that a real dropout was
+            # silently smoothed over, e.g. a mid-episode WitMotion BLE gap.
+            print(f"[resample] warn{f' ({label})' if label else ''}: {int(big.sum())} timing gap(s) > 1.0s "
+                  f"(max {gaps.max():.2f}s) bridged by linear interpolation", file=sys.stderr)
     grid = np.arange(0.0, t[-1] - t[0], 1.0 / rate)
     y = np.interp(grid, t - t[0], x)
     if smooth_s > 0:
@@ -412,6 +431,8 @@ def peak_stats(lags: np.ndarray, corr: np.ndarray, exclusion_s: float = 5.0) -> 
 
 def swing_peaks(t: np.ndarray, x: np.ndarray, height: float, distance_s: float = 0.4) -> np.ndarray:
     from scipy.signal import find_peaks
+    if len(t) < 2:  # too short a grid (e.g. a sub-frame-period clip/episode) to define a sample interval
+        return np.empty(0, dtype=t.dtype)
     dt_ = t[1] - t[0]
     pk, _ = find_peaks(x, height=height, distance=max(1, int(distance_s / dt_)))
     return t[pk]
@@ -485,8 +506,17 @@ def orbbec_clock_records(orb: dict, imu: dict, extra_tars: list[Path]) -> list[d
         name = tar.stem
         if name in orb or not name.startswith("orbbec_"):
             continue
-        stamp = name.split("_")[1] + name.split("_")[2]
-        launch = dt.datetime.strptime(stamp, "%Y%m%d%H%M%S")
+        parts = name.split("_")
+        if len(parts) < 3:
+            print(f"[orbbec] warn: skipping tar {name!r}: name doesn't match orbbec_<date>_<time>[...] "
+                  "(need at least 3 underscore-separated parts)", file=sys.stderr)
+            continue
+        stamp = parts[1] + parts[2]
+        try:
+            launch = dt.datetime.strptime(stamp, "%Y%m%d%H%M%S")
+        except ValueError as ex:
+            print(f"[orbbec] warn: skipping tar {name!r}: bad timestamp {stamp!r} ({ex})", file=sys.stderr)
+            continue
         size = tar.stat().st_size
         status = "0-byte tar (failed download); name only" if size == 0 else f"tar on disk ({size} bytes) but not extracted; name only"
         rec = {"orbbec_session": name, "status": status, "tar_bytes": size,
@@ -525,12 +555,37 @@ def main() -> int:
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     rate = args.rate
+    if not args.no_plots:
+        # Fail fast, before any of the (possibly slow) loading/computation below, rather than losing
+        # already-computed results to a broken matplotlib mid-loop (plot_pair/plot_matrix still do
+        # their own lazy import; this just proves it will succeed).
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+        except Exception as ex:
+            sys.exit(f"matplotlib import failed ({ex}); pass --no-plots to skip plotting, "
+                     "or fix matplotlib in this interpreter")
 
     # ---- load
     imu = load_imu(args.imu_dir)
     clips = load_bvh_hand_speed(args.bvh_dir)
-    fbx = {p.stem: parse_fbx_header(p) for p in sorted(args.fbx_dir.glob("*.fbx"))}
-    orb = {d.name: load_orbbec(d) for d in args.orbbec_dir if (d / "session.json").is_file()}
+    if not clips:
+        sys.exit(f"no Clip*.bvh files found under {args.bvh_dir}; run the Blender BVH export step first, "
+                 "or pass --bvh-dir")
+    fbx = {}
+    for p in sorted(args.fbx_dir.glob("*.fbx")):
+        try:
+            fbx[p.stem] = parse_fbx_header(p)
+        except Exception as ex:
+            print(f"[fbx] warn: skipping {p.name}: failed to parse ({ex})", file=sys.stderr)
+    orb = {}
+    for d in args.orbbec_dir:
+        if not (d / "session.json").is_file():
+            continue
+        try:
+            orb[d.name] = load_orbbec(d)
+        except ValueError as ex:
+            print(f"[orbbec] warn: skipping {d.name}: {ex}", file=sys.stderr)
     json.dump(fbx, open(out / "fbx-headers.json", "w"), indent=1, sort_keys=True)
     print(f"[load] {len(imu)} IMU episodes, {len(clips)} BVH clips, {len(fbx)} FBX headers, {len(orb)} Orbbec sessions")
     for c, v in clips.items():
@@ -559,14 +614,14 @@ def main() -> int:
     # ---- 2. IMU <-> mocap cross-correlation
     imu_rs = {}
     for ep, e in imu.items():
-        t, x = resample(e["t_utc"], e["gyro"], rate, args.smooth)
-        tp, xp = resample(e["t_utc"], e["gyro"], rate, args.peak_smooth)
+        t, x = resample(e["t_utc"], e["gyro"], rate, args.smooth, label=ep)
+        tp, xp = resample(e["t_utc"], e["gyro"], rate, args.peak_smooth, label=ep)
         imu_rs[ep] = {"t": t, "x": x, "n": normalise(x), "peaks": swing_peaks(tp, xp, args.peak_dps)}
     clip_rs = {}
     for c, v in clips.items():
-        ta, xa = resample(v["t"], v["ang_speed"], rate, args.smooth)
-        tl, xl = resample(v["t"], v["speed"], rate, args.smooth)
-        tp, xp = resample(v["t"], v["ang_speed"], rate, args.peak_smooth)
+        ta, xa = resample(v["t"], v["ang_speed"], rate, args.smooth, label=c)
+        tl, xl = resample(v["t"], v["speed"], rate, args.smooth, label=c)
+        tp, xp = resample(v["t"], v["ang_speed"], rate, args.peak_smooth, label=c)
         clip_rs[c] = {"t": ta, "ang": normalise(xa), "lin": normalise(xl), "peaks": swing_peaks(tp, xp, args.peak_dps)}
     rows = []
     corr_matrix = np.full((len(imu), len(clips)), np.nan)
@@ -626,7 +681,7 @@ def main() -> int:
                         continue
                     ep = cand["episode"]
                     e = imu[ep]
-                    ti, xi = resample(e["t_local"], e["gyro"], rate, args.smooth)
+                    ti, xi = resample(e["t_local"], e["gyro"], rate, args.smooth, label=ep)
                     ni = normalise(xi)
                     expected = (gt[0] + 3600 * rec["implied_host_utc_offset_h"]) - e["start_local_naive"]
                     lags, corr = xcorr_lags(ni, gn, rate, args.max_lag)
@@ -636,7 +691,8 @@ def main() -> int:
                          "expected_lag_s_same_wall_clock": round(expected, 3), "r_at_expected_lag": round(r_exp, 4),
                          "xcorr_lag_s": st["lag_s"], "xcorr_peak": round(st["peak_corr"], 4),
                          "secondary_ratio": st["secondary_ratio"], "peak_z": round(st["peak_z"], 2),
-                         "conclusive": bool(st["peak_z"] >= 4 and (st["secondary_ratio"] or 1) < 0.6)}
+                         "conclusive": bool(st["peak_z"] >= 4 and
+                                            (st["secondary_ratio"] if st["secondary_ratio"] is not None else 1) < 0.6)}
                     clock["orbbec_motion_xcorr"].append(r)
                     print(f"[orbbec-motion] {name}/{cam} vs IMU {ep[-6:]}: expected lag {expected:+.2f}s if same wall clock, r there {r_exp:.3f}; "
                           f"best lag {st['lag_s']:+.2f}s r {st['peak_corr']:.3f} 2nd-ratio {st['secondary_ratio']} z {st['peak_z']:.1f} -> conclusive={r['conclusive']}")
@@ -685,7 +741,8 @@ def build_session_map(imu, clips, fbx, clock_rows, xrows, args) -> dict:
             runner = ranked[1][2] if len(ranked) > 1 else None
             margin = None if runner is None else top["xcorr_peak"] - runner["xcorr_peak"]
             small_lag = top["xcorr_lag_s"] is not None and abs(top["xcorr_lag_s"]) <= 15
-            conf = "high" if (top["peak_z"] >= 4 and (top["secondary_ratio"] or 1) < 0.6 and small_lag and (margin is None or margin > 0.15)) else \
+            sr = top["secondary_ratio"] if top["secondary_ratio"] is not None else 1
+            conf = "high" if (top["peak_z"] >= 4 and sr < 0.6 and small_lag and (margin is None or margin > 0.15)) else \
                    "medium" if (top["peak_z"] >= 3 and small_lag and (margin is None or margin > 0.08)) else "low"
             entry["rokoko"] = {"clip": top["clip"], "clip_duration_s": top["clip_duration_s"],
                                "duration_diff_s": round(abs(top["clip_duration_s"] - top["imu_duration_s"]), 2),
@@ -712,7 +769,7 @@ def build_session_map(imu, clips, fbx, clock_rows, xrows, args) -> dict:
     for clip, ens in claims.items():
         if len(ens) < 2:
             continue
-        ens.sort(key=lambda en: -en["rokoko"]["xcorr_peak"])
+        ens.sort(key=lambda en: -(en["rokoko"]["xcorr_peak"] if np.isfinite(en["rokoko"]["xcorr_peak"]) else -1))
         for loser in ens[1:]:
             r = loser["rokoko"]
             loser["rokoko"] = {"clip": None, "rejected_candidate": clip, "rejected_xcorr_peak": r["xcorr_peak"], "rejected_xcorr_lag_s": r["xcorr_lag_s"],

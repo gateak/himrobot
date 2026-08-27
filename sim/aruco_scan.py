@@ -94,6 +94,8 @@ def main():
     ap.add_argument("--annotate", type=int, default=3, help="annotated PNGs per camera")
     ap.add_argument("--out-dir", default=OUT_DIR)
     args = ap.parse_args()
+    if args.frames <= 0:
+        ap.error("--frames must be > 0")
 
     sess = Session(args.session)
     cams = [sess.resolve_cam(c) for c in args.cams] if args.cams else sess.cams()

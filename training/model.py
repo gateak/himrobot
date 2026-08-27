@@ -28,6 +28,13 @@ class MLPPolicy(nn.Module):
     exactly at the "hold" policy, which matters for next-pose data where
     consecutive frames are nearly identical. The skip lives inside the module so
     the deploy-side loader (him_adapter.policy) needs no change.
+
+    This "zero-init == hold" identity is only exact in *normalized* space when
+    the obs and action normalization stats agree on those first act_dim columns
+    (both sides are the same physical joints, but obs stats are fit over the
+    windowed input while act stats are fit over the target -- they don't match
+    for free). ``training.dataset.compute_norm_stats`` is what makes them
+    match; see ``training/tests/test_residual_hold.py``.
     """
 
     def __init__(self, obs_dim: int, act_dim: int, hidden=(256, 256), dropout: float = 0.0,

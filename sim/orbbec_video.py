@@ -46,7 +46,14 @@ def main():
     fps = args.fps
     if fps <= 0:
         t = np.array([r["host_time_s"] for r in sess.frames(cam)])
-        fps = float(round(1.0 / np.median(np.diff(t)), 2)) if len(t) > 1 else 30.0
+        if len(t) > 1:
+            gap = float(np.median(np.diff(t)))
+            if not (gap > 0):
+                raise SystemExit(f"cannot compute real-time fps for {cam}: median host_time_s gap is {gap!r} "
+                                  "(duplicate/non-increasing timestamps); pass --fps explicitly")
+            fps = round(1.0 / gap, 2)
+        else:
+            fps = 30.0
     out = args.out or os.path.join(OUT_DIR, f"{sess.name}_{cam}_color.mp4")
     if os.path.dirname(out):
         os.makedirs(os.path.dirname(out), exist_ok=True)

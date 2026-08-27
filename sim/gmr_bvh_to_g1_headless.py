@@ -39,8 +39,10 @@ def retarget(bvh_file, out, fmt, robot, fps, max_frames=None, human_height=None,
     from general_motion_retargeting.utils.lafan1 import load_bvh_file
     frames, loader_height = load_bvh_file(bvh_file, format=fmt)
     height = loader_height if human_height is None else float(human_height)
-    if max_frames:
+    if max_frames is not None:
         frames = frames[:max_frames]
+    if not frames:
+        raise ValueError(f"{bvh_file}: 0 frames to retarget (clip empty or --max_frames {max_frames} truncated it to none)")
     rt = _make_retargeter(fmt, robot, height, ik_config)
     it = frames
     if progress:

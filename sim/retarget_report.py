@@ -64,7 +64,9 @@ def load_bvh(path):
         elif key == "MOTION":
             break
     nframes = int(lines[i].split(":")[1]); frame_time = float(lines[i + 1].split(":")[1])
-    data = np.loadtxt(lines[i + 2:i + 2 + nframes], dtype=float)
+    if nframes == 0:
+        raise ValueError(f"{path}: BVH motion has 0 frames (empty clip)")
+    data = np.loadtxt(lines[i + 2:i + 2 + nframes], dtype=float, ndmin=2)
     data = data.reshape(nframes, -1)
     return {"names": names, "parents": np.array(parents), "offsets": np.array(offsets, dtype=float),
             "channels": channels, "end_sites": end_sites, "data": data, "frame_time": frame_time}
@@ -207,7 +209,7 @@ def robot_arm_length(m, d):
 def report_clip(bvh_path, csv_path, scene, ik_model, order_file):
     bvh = load_bvh(bvh_path); n = bvh["names"]
     hpos, _, _ = bvh_fk(bvh)
-    rows = np.loadtxt(csv_path, delimiter=",")
+    rows = np.loadtxt(csv_path, delimiter=",", ndmin=2)
     F = min(len(rows), hpos.shape[0]); rows, hpos = rows[:F], hpos[:F]
     m, d, names, qadr = load_robot(scene, order_file)
     rb, foot_min = robot_fk(m, d, qadr, rows)

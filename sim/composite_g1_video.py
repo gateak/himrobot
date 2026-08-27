@@ -142,9 +142,14 @@ def host_to_wall(host_time_s, offset_h):
 
 # ---------------------------------------------------------------- footage
 def load_frames(session_dir, cam):
-    cands = sorted(glob.glob(os.path.join(session_dir, cam + "*")))
-    if not cands:
-        sys.exit(f"no {cam}* under {session_dir}")
+    # exact-prefix match (cam + "_") so "cam1" cannot ambiguously match "cam10_..."
+    cands = sorted(glob.glob(os.path.join(session_dir, cam + "_*")))
+    exact = os.path.join(session_dir, cam)
+    if os.path.isdir(exact) and exact not in cands:
+        cands.append(exact)
+    if len(cands) != 1:
+        sys.exit(f"--cam {cam!r} matches {[os.path.basename(c) for c in cands]} under {session_dir} "
+                 "(need exactly 1)")
     cam_dir = cands[0]
     rows = [json.loads(l) for l in open(os.path.join(cam_dir, "frames.jsonl")) if l.strip()]
     return cam_dir, rows
@@ -303,6 +308,8 @@ def draw_ball(img, idx, track, frames_sorted, has_depth, trail_n=6):
 # ---------------------------------------------------------------- main
 def main():
     a = parse_args()
+    if a.mode != "strip" and a.fps <= 0:
+        sys.exit(f"--fps must be > 0 for --mode {a.mode} (got {a.fps})")
     session_name = os.path.basename(os.path.normpath(a.session))
     al = load_alignment(a, session_name)
     cam_dir, rows = load_frames(a.session, a.cam)
@@ -423,6 +430,9 @@ def main():
     else:  # strip
         g1.set_key(False)
         imu = [r for r in csv.DictReader(open(a.imu_csv)) if r["episode_id"] == al["imu_episode"]]
+        if not imu:
+            sys.exit(f"no IMU rows for episode_id={al['imu_episode']!r} in {a.imu_csv}; "
+                     "check --imu-csv / the session-map episode id")
         ti = np.array([(datetime.fromisoformat(r["timestamp_local"]) - imu_start).total_seconds() for r in imu])
         gy = np.linalg.norm([[float(r[k]) for k in ("angular_velocity_x_dps", "angular_velocity_y_dps",
                                                      "angular_velocity_z_dps")] for r in imu], axis=1)
@@ -437,6 +447,10 @@ def main():
             i = sel[np.argmax(gy[sel])]
             if gy[i] >= a.strip_min_dps:
                 peaks.append((float(ti[i]), float(gy[i])))
+        if not peaks:
+            sys.exit(f"no IMU |gyro| peak >= {a.strip_min_dps} dps in any of the {a.strip_n} time bins "
+                     f"over imu_t [{lo:.2f}, {hi:.2f}]s (imu_episode={al['imu_episode']!r}, {len(imu)} rows); "
+                     "try a lower --strip-min-dps or check the episode overlap")
         imu_used = np.array([f["imu_t"] for f in used])
         tiles_rows = []; strip_info = []
         for (tp, gp) in peaks:
