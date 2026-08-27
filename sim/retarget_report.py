@@ -6,15 +6,14 @@
   python sim/retarget_report.py --measure_height clip.bvh          # subject height from frame 0
 
 Writes <out>.json and <out>.md. Per clip:
-  * right-wrist position error (cm) in a pelvis-centred heading frame (origin = Hips /
-    pelvis, z = world up, y = left-hip minus right-hip projected to the ground, x = y x z);
-    the human vector is scaled by robot_arm_len / human_arm_len. Also reported in a
-    shoulder-centred frame (origin = RightArm / right_shoulder_pitch_link) which isolates
-    the arm pose from torso-proportion differences.
-  * root (pelvis) height min/max, min foot z (foot-class sphere bottoms), joint-limit
-    saturation counts (|q - limit| < 1e-3 rad) against the IK model's ranges (what GMR's
-    ConfigurationLimit clamps at) and the Menagerie ranges, and the geometric elbow angle
-    range (0 deg = straight) for human and robot plus right_elbow_joint q range.
+  * right-wrist position error (cm): pelvis-centred heading frame (origin Hips/pelvis; z =
+    world up, y = left-hip minus right-hip projected to ground, x = y x z; human vector
+    scaled by robot_arm_len / human_arm_len) and shoulder-centred frame (origin RightArm /
+    right_shoulder_pitch_link, isolating arm pose from torso-proportion differences).
+  * root (pelvis) height min/max; min foot z (foot-class sphere bottoms); joint-limit
+    saturation counts (|q - limit| < 1e-3 rad) vs the IK model's ranges (what GMR's
+    ConfigurationLimit clamps at) and the Menagerie ranges; geometric elbow angle range
+    (0 deg = straight) for human and robot, plus right_elbow_joint q range.
 BVH handling: 6-channel joints -> position channels REPLACE the OFFSET (Blender export);
 cm -> m and Y-up -> Z-up exactly as GMR's lafan1 loader does ((x, y, z) -> (x, -z, y)).
 """

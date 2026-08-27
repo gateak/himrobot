@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Derive a GMR IK config for Blender-exported Rokoko BVH -> Unitree G1.
 
-GMR's bvh_lafan1_to_g1.json rotation offsets assume the LAFAN1 bone-frame
-convention. Blender's BVH export of the Rokoko "Newton" skeleton has identity
-rest rotations for every bone (frame 0 = T-pose, all rotation channels ~0), so
-after GMR's Y-up -> Z-up conversion every human bone is oriented Rx(90 deg) in
-the T-pose and faces -y (toes point +z_bvh -> -y). The G1 at qpos=0 faces +x.
+GMR's bvh_lafan1_to_g1.json offsets assume the LAFAN1 bone-frame convention,
+but Blender's Rokoko "Newton" BVH export has identity rest rotations per bone
+(frame 0 = T-pose, all rotation channels ~0). After GMR's Y-up -> Z-up
+conversion this leaves every human bone at Rx(90 deg) in the T-pose, facing
+-y (toes +z_bvh -> -y); the G1 at qpos=0 faces +x.
 
-For every robot body in the IK tables the offset is therefore
-    R_offset = Rx(90)^T . Rz(-90) . R_body(q_T)
-where q_T is the G1's T-pose (qpos = 0 except right_shoulder_roll = -pi/2,
-left_shoulder_roll = +pi/2, both elbows = +pi/2, all read off the model), so
-that target = R_human . R_offset reproduces the robot T-pose when the human is
-in the T-pose. Weights, position offsets, scale table and height assumption are
-copied unchanged from the upstream config.
+So per robot body: R_offset = Rx(90)^T . Rz(-90) . R_body(q_T), with q_T the
+G1's T-pose (qpos = 0 except right_shoulder_roll = -pi/2, left_shoulder_roll
+= +pi/2, both elbows = +pi/2, read off the model) -- giving R_human . R_offset
+= robot T-pose when the human is in T-pose. Weights, position offsets, scale
+table and height assumption are copied unchanged from the upstream config.
 
   ~/him-tools/gmr-venv/bin/python sim/ik_configs/make_rokoko_g1_config.py \
       [--src ~/him-tools/GMR/general_motion_retargeting/ik_configs/bvh_lafan1_to_g1.json] \

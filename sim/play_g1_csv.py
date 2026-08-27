@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Play a GMR/Unitree-style CSV (root xyz, quat xyzw, 29 joint angles per row)
-on the Menagerie Unitree G1 in MuJoCo.
-
-  python play_g1_csv.py motion.csv                 # live passive viewer
-  python play_g1_csv.py motion.csv --video out.mp4 # offscreen render
-
-GMR's 29-joint order is read from --joint-names (a text file, one name per
-line, written by gmr_bvh_to_g1_headless.py) and mapped onto the Menagerie
-joint order BY NAME.
+"""Plays a GMR/Unitree-style motion CSV (root xyz, quat xyzw, 29 joint
+angles per row) on the Menagerie Unitree G1 in MuJoCo: live passive viewer
+by default, offscreen video render with --video. Joint order comes from
+--joint-names (text file, one name per line, written by
+gmr_bvh_to_g1_headless.py) and is matched to Menagerie joints by name.
 """
 import argparse, os, time
 import numpy as np, mujoco

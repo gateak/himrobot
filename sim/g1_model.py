@@ -1,9 +1,7 @@
-"""Load the Unitree G1 (mujoco_menagerie) and rigidly attach a table-tennis
-paddle to the right hand — without editing the vendored asset.
-
-The G1 has a full 7-DOF right arm (shoulder pitch/roll/yaw, elbow, wrist
-roll/pitch/yaw), so IK can place the wrist of retargeted human motion (unlike the
-wrist-less K1). Model source: github.com/google-deepmind/mujoco_menagerie.
+"""Loads the Unitree G1 (github.com/google-deepmind/mujoco_menagerie) and rigidly
+attaches a table-tennis paddle to the right hand, without editing the vendored asset.
+Its full 7-DOF right arm (shoulder pitch/roll/yaw, elbow, wrist roll/pitch/yaw) lets
+IK place the wrist for retargeted human motion, unlike the wrist-less K1.
 """
 from __future__ import annotations
 

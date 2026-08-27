@@ -1,12 +1,12 @@
 """Retarget a real human table-tennis swing (Rokoko mocap) onto the Unitree G1.
 
-Method (position-based, robust — no fragile euler-axis matching): read the
-human's per-frame shoulder/elbow/wrist world positions (from fbx_extract.py),
-express the wrist relative to the shoulder in a torso frame, scale to the
-robot's arm length, and solve the G1's 7-DOF right arm so its wrist reaches
-that point. A null-space bias keeps the rest of the arm near the natural stand
-pose. This makes the robot "reach where the human reached" — the HITTER-style
-use of human motion as a reference.
+Position-based, robust (no fragile euler-axis matching): read the human's
+per-frame shoulder/elbow/wrist world positions (from fbx_extract.py), express
+the wrist relative to the shoulder in a torso frame, scale to the robot's arm
+length, and solve the G1's 7-DOF right arm so its wrist reaches that point,
+with a null-space bias keeping the rest of the arm near the natural stand
+pose — the robot "reaches where the human reached" (HITTER-style use of
+human motion as reference).
 
     ./.venv/bin/python sim/g1_retarget.py            # -> sim/g1_retarget.gif
 """

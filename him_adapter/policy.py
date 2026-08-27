@@ -29,10 +29,9 @@ def load_contract() -> dict[str, object]:
 def validate_observation(signals: object, expected_len: int = JOINT_COUNT) -> list[int | float] | None:
     """Extract and validate ``robot.joint_position`` from an observation's signals.
 
-    Returns the validated list of numbers (same objects/types as given, so
-    valid input round-trips unchanged) on success. Returns None if ``signals``
-    isn't a dict, the value is missing / not a list / the wrong length, or any
-    element isn't a finite (non-NaN, non-Infinity) real number.
+    Returns the list unchanged (same objects/types) on success. None if
+    ``signals`` isn't a dict, the value is missing/not a list/wrong length, or
+    any element isn't a finite (non-NaN, non-Infinity) real number.
     """
     if not isinstance(signals, dict):
         return None
@@ -73,10 +72,10 @@ class HoldPolicy:
 class BCPolicy:
     """Deployment wrapper around a trained behavior-cloning checkpoint.
 
-    Loads torch lazily so this module stays import-safe (and the smoke test
-    stays green) in environments without torch. An invalid observation
-    degrades to the contract's "hold" fallback rather than raising; a
-    failure inside model inference itself still propagates.
+    Loads torch lazily (keeps this module import-safe, and the smoke test
+    green, without torch). Invalid observations degrade to the contract's
+    "hold" fallback instead of raising; failures inside model inference
+    still propagate.
     """
 
     def __init__(self, checkpoint_path: str = DEFAULT_CHECKPOINT):

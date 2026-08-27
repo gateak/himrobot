@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Composite Orbbec footage with the retargeted G1 (MuJoCo) at the aligned time.
 
-Time chain (all constants are READ FROM work/alignment/*.json at run time, see
---session-map / --clock-json; CLI overrides exist for each one):
+Time chain (constants READ FROM work/alignment/*.json at run time, via
+--session-map / --clock-json; each has a CLI override):
 
     wall(frame)  = utc_from_epoch(host_time_s) + host_utc_offset_h     (Orbbec host clock, offset -7 h)
     imu_t        = wall(frame) - imu_start_wall                        (IMU episode time, s)
@@ -10,10 +10,10 @@ Time chain (all constants are READ FROM work/alignment/*.json at run time, see
     csv_row      = 1 + round(clip_t * csv_fps)                          (clip t=0 is BVH frame 1; CSV row 0 is the dropped T-pose)
 
 A frame is used only when 1 <= csv_row <= nrows-1 and its color_file is not null.
-The MP4 is written at a constant --fps on a grid t_k = t_first_used + k/fps; each output
-frame shows the footage frame whose host_time_s is nearest to t_k together with the G1 at
-THAT footage frame's own csv_row, so video time == real elapsed time (footage frames may be
-repeated or dropped where the recorder ran slower/faster than --fps).
+MP4 is written at constant --fps on grid t_k = t_first_used + k/fps; each frame pairs the
+footage frame with host_time_s nearest t_k with the G1 at THAT frame's own csv_row, so video
+time == real elapsed time (footage frames repeat or drop where the recorder ran
+slower/faster than --fps).
 
 Modes:
   side     1280x480: footage left, G1 right, caption bar at the bottom.
@@ -22,20 +22,20 @@ Modes:
   strip    PNG with N rows of swing peaks (IMU |gyro| maxima, one per equal time bin),
            each row: footage and G1 at t-dt, t, t+dt.
 
-The geometry is a COMPOSITE, not a calibrated registration: the MuJoCo camera only
-imitates the footage viewpoint (see --azimuth/--elevation/--distance) and nothing is
-projected through the real camera intrinsics/extrinsics (which are unknown, docs 6a).
+Geometry is a COMPOSITE, not calibrated registration: the MuJoCo camera only imitates the
+footage viewpoint (--azimuth/--elevation/--distance); nothing is projected through the real
+camera intrinsics/extrinsics (unknown, docs 6a).
 
-Ball (side/overlay modes only, drawn on the footage panel): for every footage frame that
-has a detection in --ball-csv (default: auto-located work/perception/ball2d_<session>_<cam>_*.csv),
-draws a thin orange circle at (u,v) with the detected radius (min 6 px), a short fading trail
-of dots at the previous --ball-trail detections, and, if the CSV has a depth_mm column
-(ball3d_*.csv), the depth in metres as small text. Detections are noisy and NOT interpolated
-between frames -- a frame with no CSV row for it gets no ball drawn. --no-ball disables this.
+Ball (side/overlay only, drawn on the footage panel): for each footage frame with a
+detection in --ball-csv (default: auto-located work/perception/ball2d_<session>_<cam>_*.csv),
+draws a thin orange circle at (u,v), radius from the CSV (min 6 px), a fading trail of the
+previous --ball-trail detections, and -- if the CSV has a depth_mm column (ball3d_*.csv) --
+depth in metres as text. Detections are noisy and NOT interpolated: a frame with no CSV row
+gets no ball. --no-ball disables all of this.
 
 --start-s/--end-s/--duration-s subset the OUTPUT to a footage/session-elapsed time window
-(host_time_s minus the first frame's host_time_s in frames.jsonl) -- this is wall/footage time,
-not imu_t or clip_t, so it lines up with e.g. "seconds into the recording" rather than the clip.
+(host_time_s minus the first frame's host_time_s in frames.jsonl): wall/footage time, not
+imu_t or clip_t, i.e. "seconds into the recording" rather than into the clip.
 """
 import argparse, csv, glob, json, os, sys
 from datetime import datetime, timedelta, timezone
@@ -261,12 +261,11 @@ def find_default_ball_csv(session_name, cam):
 
 
 def load_ball_track(path):
-    """Ball detections keyed by footage frame idx (the CSV 'frame' column == frames.jsonl 'idx').
+    """Ball detections keyed by footage frame idx (CSV 'frame' == frames.jsonl 'idx').
 
-    Rows with blank u/v (no detection that frame) are skipped -- callers must NOT interpolate
-    between the remaining entries, only draw what was actually detected. Works for both the
-    plain ball2d_*.csv (frame,host_time_s,u,v,radius) and the depth-augmented ball3d_*.csv
-    (adds depth_mm,n_valid,bg_depth_mm); depth_mm is picked up automatically if the column exists.
+    Blank-u/v rows (no detection) are skipped -- callers must NOT interpolate between what
+    remains. Handles plain ball2d_*.csv (frame,host_time_s,u,v,radius) and depth-augmented
+    ball3d_*.csv (adds depth_mm,n_valid,bg_depth_mm); depth_mm is used automatically when present.
     """
     with open(path, newline="") as fh:
         r = csv.DictReader(fh)

@@ -1,23 +1,20 @@
 """Configuration for behavior-cloning training.
 
-PROVENANCE / ASSUMPTIONS  (read before trusting any number here)
-----------------------------------------------------------------
-Joint count and order come from the repo's own runtime contract,
-``.him/contracts/runtime.json`` (``observations[0].shape == [29]``,
-``extensions.robot.joint_order`` = the 29 Unitree G1 joints in MuJoCo-Menagerie
-actuator order, identical to the Unitree SDK2 ``G1JointIndex`` enum). The
-retargeted-motion CSVs under ``data/g1`` were written in that same order
-(``gmr_g1_joint_order.txt`` alongside them; ``training.dataset`` checks it).
+PROVENANCE (read before trusting any number here): joint count/order come
+from the repo's runtime contract ``.him/contracts/runtime.json``
+(``observations[0].shape == [29]``; ``extensions.robot.joint_order`` = 29
+Unitree G1 joints in MuJoCo-Menagerie actuator order, same as Unitree SDK2
+``G1JointIndex`` enum). Retargeted-motion CSVs under ``data/g1`` share that order
+(``gmr_g1_joint_order.txt`` alongside them; checked by ``training.dataset``).
 
-The deploy signal names ``robot.joint_position`` / ``robot.desired_joint_position``
-and the 50 Hz clock are what OUR contract declares (taken from the HIM
-single-policy template). They are UNCONFIRMED against HIM's server-side
-evaluator -- HIM has not confirmed the wire format, joint order, or rate.
-Everything is parameterised so corrected values drop in without touching the
-training code.
+Deploy signal names ``robot.joint_position``/``robot.desired_joint_position``
+and the 50 Hz clock are what OUR contract declares (from the HIM
+single-policy template) and are UNCONFIRMED against HIM's server-side
+evaluator (wire format, joint order, rate not verified); values are
+parameterised so corrections drop in without touching training code.
 
-Training data is NOT robot data: it is GMR-retargeted Rokoko human mocap
-(kinematic poses, 30 fps). See training/README.md.
+Training data is GMR-retargeted Rokoko human mocap (kinematic poses, 30 fps),
+NOT robot data. See training/README.md.
 """
 
 from __future__ import annotations

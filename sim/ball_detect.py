@@ -1,18 +1,18 @@
 """Detect the table-tennis ball in Orbbec color frames (perception track, 2D pass).
 
-Reads a session either from an extracted directory
-(``<session>/<cam>/{color,depth,frames.jsonl}`` + ``session.json``) or straight
+Reads a session from an extracted directory
+(``<session>/<cam>/{color,depth,frames.jsonl}`` + ``session.json``) or directly
 from the session tar (no bulk extraction). The ball is a small orange disc on
-a dark-blue table, so we run an HSV orange mask + blob roundness, optionally
-gated by frame differencing (``--motion``), a table ROI from the ArUco corner
-markers (``--roi-json``, from ``sim/aruco_scan.py``), a static-orange map
-(``--static-reject``) and distance to big red/orange blobs (``--near-big``,
-paddle rubber) so clutter (bottle, sandals, skin, paddle) is rejected, then
-track by proximity.
+a dark-blue table: an HSV orange mask + blob roundness finds candidates,
+optionally gated by frame differencing (``--motion``), a table ROI from ArUco
+corner markers (``--roi-json``, from ``sim/aruco_scan.py``), a static-orange
+map (``--static-reject``), and distance to big red/orange blobs (``--near-big``,
+paddle rubber) to reject clutter (bottle, sandals, skin, paddle); it then
+tracks by proximity.
 
-Outputs: per-frame detection stats, a CSV 2D track
-(frame, host_time_s, u, v, radius; blank u/v/radius where nothing was found)
-and annotated sample frames. Depth lookup is ``sim/ball_3d.py``.
+Outputs per-frame detection stats, a CSV 2D track
+(frame, host_time_s, u, v, radius; blank u/v/radius where nothing was found),
+and annotated sample frames. Depth lookup: ``sim/ball_3d.py``.
 
     ~/him-tools/cv-venv/bin/python sim/ball_detect.py \\
         --session data/orbbec_20260815_215350 --cam cam0 --motion 8 \\
@@ -103,12 +103,11 @@ class Session:
 def iter_frames(sess, cam, start=0, count=None, step=1, stats=None):
     """Yield (idx, host_time_s, bgr_image) for the requested frame rows.
 
-    Rows whose color_file is null (dropped by the recorder) are skipped.
-    Rows whose color_file is present but fails to decode (corrupt/truncated
-    JPEG) are also skipped, but logged, so a batch of storage-corrupted
-    frames doesn't look like an ordinary recorder gap. If `stats` (a dict)
-    is given, "null_color_file" and "decode_failed" counts are accumulated
-    into it so a caller can report the totals.
+    Skips rows with a null color_file (dropped by the recorder). Also skips
+    rows whose color_file fails to decode (corrupt/truncated JPEG), logging
+    each one so storage corruption doesn't look like an ordinary recorder
+    gap. If `stats` (a dict) is given, "null_color_file" and "decode_failed"
+    counts accumulate into it for the caller to report.
     """
     rows = sess.frames(cam)
     end = len(rows) if count is None else min(len(rows), start + count)

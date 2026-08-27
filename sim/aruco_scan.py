@@ -1,9 +1,7 @@
-"""Scan Orbbec colour frames for fiducial markers (ArUco / AprilTag).
-
-Tries the common OpenCV dictionaries on a sample of frames from each camera
-and reports which dictionary fires, which marker IDs, and the pixel corners
-(median over the sampled frames, so the numbers are usable as a table-frame
-calibration input later). Writes a JSON summary and annotated PNGs.
+"""Scan Orbbec colour frames for ArUco/AprilTag fiducials. Tries the common
+OpenCV dictionaries on a sampled set of frames per camera, reports which one
+fires with its marker IDs and median pixel corners (for later table-frame
+calibration), and writes a JSON summary plus annotated PNGs.
 
     ~/him-tools/cv-venv/bin/python sim/aruco_scan.py \\
         --session data/orbbec_20260815_215350 --frames 12

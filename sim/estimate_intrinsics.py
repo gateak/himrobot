@@ -4,44 +4,43 @@ exists anywhere in the capture -- see docs/PROJECT_KNOWLEDGE.md #6a).
 
 Method (no checkerboard, no pyorbbecsdk -- uses only what is on disk):
 
-1. For a session, re-detect the DICT_4X4_50 ArUco markers of one camera's
-   half-table (4 markers, ids fixed per serial -- see SERIAL_IDS) across
-   every colour frame in the session. Median the per-frame corner pixels ->
-   one stable (u, v) per marker corner (16 points) and per marker centre (4
-   points, mean of that marker's 4 corners). At each of those *fixed* pixel
-   locations, read the aligned depth PNG across ~20 of the frames the marker
-   decoded in (small window, ignore zero, mm -> m) and take the median --
-   this is a temporal denoise of a static scene, not a spatial one.
+1. Re-detect the DICT_4X4_50 ArUco markers of one camera's half-table (4
+   markers, ids fixed per serial -- see SERIAL_IDS) across every colour frame
+   in a session. Median the per-frame corner pixels into one stable (u, v)
+   per marker corner (16 points) and per marker centre (4 points, mean of
+   that marker's 4 corners). At each fixed pixel location, median the aligned
+   depth PNG (mm -> m) over a small window across ~20 of the frames the
+   marker decoded in, ignoring zero -- a temporal, not spatial, denoise of a
+   static scene.
 
 2. Unknowns: fx, fy, cx, cy (pinhole, zero distortion -- stated assumption),
    plus two nuisance parameters: `inset` (how far the printed markers sit in
    from the table edges they mark, assumed equal on all four sides, <= 10 cm)
-   and `medge` (the marker's own printed edge length). The unprojection model
-   is X=(u-cx)Z/fx, Y=(v-cy)Z/fy, Z=Z. The 4 marker centres of one half-table
-   must reconstruct to a 1.525 m (net/end-line pairs) x (1.37 m half-length)
-   rectangle shrunk by 2*inset on every side, with right angles and (via a
-   scalar triple product, in metres = an out-of-plane distance) zero
-   thickness; each marker's own 4 corners must reconstruct to a `medge`
-   square. scipy.optimize.least_squares fits fx, fy, cx, cy, inset, medge to
-   those residuals jointly. Run per (serial, session); report agreement
-   across sessions as the repeatability check, and rerun with cx/cy pinned
-   to the image centre and with inset pinned at 0/5/10 cm as a sensitivity
-   check on the free-parameter version.
+   and `medge` (the marker's own printed edge length). Unprojection model:
+   X=(u-cx)Z/fx, Y=(v-cy)Z/fy, Z=Z. The 4 marker centres of one half-table
+   must reconstruct to a 1.525 m (net/end-line pairs) x 1.37 m (half-length)
+   rectangle shrunk by 2*inset per side, with right angles and (scalar
+   triple product, in metres = out-of-plane distance) zero thickness; each
+   marker's own 4 corners must reconstruct to a `medge` square.
+   scipy.optimize.least_squares fits fx, fy, cx, cy, inset, medge to those
+   residuals jointly, per (serial, session); cross-session agreement is the
+   repeatability check. Also reruns with cx/cy pinned to the image centre and
+   inset pinned at 0/5/10 cm as a sensitivity check on the free-parameter fit.
 
 3. Cross-check: fit a plane (SVD) to the depth pixels inside the convex hull
-   of the 16 corner points, using the fitted intrinsics to unproject; report
-   its RMS (mm), the implied camera height above the table (distance from
-   the camera origin to the plane), and the angle between the plane normal
-   and the table-edge normal (cross of the two fitted rectangle edges).
+   of the 16 corner points, unprojected with the fitted intrinsics; report
+   its RMS (mm), the implied camera height above the table (camera origin to
+   plane distance), and the angle between the plane normal and the
+   table-edge normal (cross of the two fitted rectangle edges).
 
 4. Output work/calib/intrinsics_<serial>.json (fx, fy, cx, cy, uncertainties,
    inset, marker edge, residuals, the table_frame camera<->table transform)
    and work/calib/REPORT.md.
 
-No factory constant is invented anywhere: fx=fy and cx,cy=image-centre are
-only the optimizer's *initial guess*, always re-fit as free parameters in
-the primary result, and zero lens distortion is an explicit, never-verified
-assumption (its effect is visible only as elevated residuals, not isolated).
+No factory constant is invented: fx=fy and cx,cy=image-centre are only the
+optimizer's *initial guess*, always re-fit as free parameters in the primary
+result; zero lens distortion is an explicit, never-verified assumption
+(visible only as elevated residuals, not isolated).
 
     ~/him-tools/cv-venv/bin/python sim/estimate_intrinsics.py
     ~/him-tools/cv-venv/bin/python sim/estimate_intrinsics.py --serial CP0E8530008E
@@ -71,11 +70,11 @@ TABLE_WIDTH = 1.525
 TABLE_HALF_LEN = TABLE_LENGTH / 2.0
 IMG_W, IMG_H = 640, 480
 
-# Marker ids per serial and their role in the half-table rectangle. Roles are
-# named by which width-side ("near"/"far" the camera, i.e. large/small image
-# v) and which length-side ("net"/"end", i.e. the table edge each marks) they
-# sit at -- fixed facts from docs/PROJECT_KNOWLEDGE.md #6a (aruco_compare.md):
-# physical cameras never moved, serial ...8E always sees ids 4-7, ...8F 0-3.
+# Marker ids per serial and each marker's role in the half-table rectangle:
+# named by width-side ("near"/"far" the camera, i.e. large/small image v) and
+# length-side ("net"/"end", the table edge it marks) -- fixed facts from
+# docs/PROJECT_KNOWLEDGE.md #6a (aruco_compare.md): cameras never moved
+# physically; serial ...8E always sees ids 4-7, ...8F 0-3.
 SERIAL_IDS = {
     "CP0E8530008E": {"near_net": 4, "far_net": 5, "near_end": 6, "far_end": 7},
     "CP0E8530008F": {"near_net": 2, "far_net": 3, "near_end": 0, "far_end": 1},
@@ -395,11 +394,10 @@ def table_frame_transform(obs, p):
                                  fx, fy, cx, cy) for r in ROLES])
     P_table = np.array([canon[r] for r in ROLES])
     R, t = kabsch(P_cam, P_table)
-    # The 4 canonical targets are exactly coplanar (Z=0), so Kabsch's 3rd (normal) axis is fit against
-    # near-zero out-of-plane spread on both sides -- its SIGN is numerically arbitrary, not physically
-    # determined, and came out flipped (table "up" pointing away from the camera) for one of the two
-    # serials in practice. Force it: table-frame "up", expressed in camera coordinates, must point from
-    # the table toward the camera at the camera-frame origin, i.e. have a negative Z_cam component.
+    # The 4 canonical targets are exactly coplanar (Z=0), so Kabsch's 3rd (normal) axis fits near-zero
+    # out-of-plane spread on both sides: its sign is numerically arbitrary, not physically determined --
+    # it came out flipped (table "up" away from camera) for one of the two serials. Force it: table-frame
+    # "up" in camera coords must point table->camera at the camera-frame origin (negative Z_cam).
     up_in_cam = R.T @ np.array([0.0, 0.0, 1.0])
     if up_in_cam[2] > 0:
         R = np.diag([1.0, -1.0, -1.0]) @ R  # 180 deg about the table x (length) axis; keeps det(R)=+1

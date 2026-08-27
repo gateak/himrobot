@@ -1,10 +1,10 @@
-"""Stitch an Orbbec session's colour frames into a playable MP4 so a human can
-watch the raw capture. Works on an extracted session directory or the tar.
+"""Stitch an Orbbec session's colour frames into a playable MP4 for human review;
+works on an extracted session directory or the tar.
 
     ~/him-tools/cv-venv/bin/python sim/orbbec_video.py \\
         --session data/orbbec_20260815_215350 --cam cam0 --fps 0
-``--fps 0`` = real-time playback from the host timestamps (median frame gap);
-frames are written as-is, so dropped frames are not re-timed.
+``--fps 0`` = real-time playback from the median host-timestamp frame gap; frames
+are written as-is, so dropped frames are not re-timed.
 """
 from __future__ import annotations
 

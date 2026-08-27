@@ -1,24 +1,24 @@
 """Dataset loading for behavior cloning.
 
-Three sources, chosen automatically from what is under ``cfg.data.root``:
+Three sources, auto-selected from what's under ``cfg.data.root``:
 
-  1. LeRobot-v3 parquet episodes (what a real HIM robot obs/action release
-     would export to). Requires ``pyarrow``. Takes priority when present.
+  1. LeRobot-v3 parquet episodes (the format a real HIM robot obs/action
+     release would export). Requires ``pyarrow``; takes priority when present.
   2. Retargeted G1 motion CSVs (``sim/gmr_bvh_to_g1_headless.py`` output):
      one ``*.csv`` per clip, no header, each row =
      ``root xyz (3, m) | root quat xyzw (4) | 29 joint angles (rad)`` at 30 fps,
-     joints in the order of ``gmr_g1_joint_order.txt`` alongside (checked against
-     the runtime contract's ``extensions.robot.joint_order``). Selected when the
-     root holds CSVs and no parquet. Becomes a next-pose behavior-cloning set:
+     joint order from ``gmr_g1_joint_order.txt`` alongside (checked against
+     the runtime contract's ``extensions.robot.joint_order``). Used when the
+     root has CSVs and no parquet. Becomes a next-pose BC set:
      ``obs = joints[t]``, ``act = joints[t+1]``; one episode per file.
-     By default the root pose is EXCLUDED from obs (see ``_load_csv`` for why);
+     Root pose is excluded from obs by default (see ``_load_csv``);
      ``cfg.data.csv_root_in_obs`` appends root height + quat.
-  3. A synthetic sample, used when neither is present, so the training loop
-     is runnable end-to-end anywhere. The synthetic "expert" is a fixed, mildly
-     non-trivial joint-state -> joint-target map, so BC has something learnable.
+  3. Synthetic sample, used when neither is present, so the training loop
+     runs end-to-end anywhere. The synthetic "expert" is a fixed, mildly
+     non-trivial joint-state -> joint-target map, so BC has something to learn.
 
 All paths return per-timestep arrays plus episode boundaries, so a windowed
-(sequence) model can be trained without leaking across episode edges.
+(sequence) model can train without leaking across episode edges.
 """
 
 from __future__ import annotations
@@ -105,16 +105,15 @@ def check_csv_joint_order(root: str, cfg) -> str:
 def _load_csv(cfg):
     """Retargeted G1 motion CSVs -> next-pose BC arrays.
 
-    Observation design: obs[t] = joint angles at t (29). The root position and
-    orientation are dropped by default because (a) the deployment contract only
-    provides ``robot.joint_position`` -- there is no root/base signal to feed
-    at inference time, and (b) root xy is world-frame mocap placement, which is
-    meaningless to a proprioceptive policy. With ``csv_root_in_obs=True`` the
-    root height z and quaternion xyzw are appended (5 extra dims, joints still
-    first) for offline experiments; such a checkpoint cannot be served by
-    ``him_adapter`` as-is.
-    Action: act[t] = joint angles at t+1 (the pose 1/30 s later). The last
-    frame of each clip has no successor and is dropped.
+    obs[t] = joint angles at t (29). Root position/orientation dropped by
+    default: (a) the deployment contract only provides ``robot.joint_position``,
+    no root/base signal to feed at inference time; (b) root xy is world-frame
+    mocap placement, meaningless to a proprioceptive policy. With
+    ``csv_root_in_obs=True``, root height z and quaternion xyzw are appended
+    (5 extra dims, joints still first) for offline experiments; such a
+    checkpoint cannot be served by ``him_adapter`` as-is.
+    act[t] = joint angles at t+1 (the pose 1/30 s later); each clip's last
+    frame has no successor and is dropped.
     """
     files = sorted(glob.glob(os.path.join(cfg.data.root, "*.csv")))
     if not files:
@@ -229,13 +228,13 @@ def make_windows(obs, act, episodes, context: int):
 
 def compute_norm_stats(X: np.ndarray, Y: np.ndarray, act_dim: int):
     """Per-feature (mean, std) for obs windows ``X`` [N,T,obs_dim] and actions
-    ``Y`` [N,act_dim], with the first ``act_dim`` obs columns forced to use the
-    *action's* statistics.
+    ``Y`` [N,act_dim]; the first ``act_dim`` obs columns are forced to use
+    the *action's* statistics.
 
-    Those columns are the current joints, the same physical quantity (and, for
-    every source in this module, the same units) as the action -- see the
+    Those columns are the current joints -- the same physical quantity (and,
+    for every source in this module, the same units) as the action; see the
     module docstring and ``build_arrays``. Fitting them independently (obs
-    stats over ``X``, action stats over ``Y``) makes the two normalizations
+    stats over ``X``, action stats over ``Y``) lets the two normalizations
     drift apart whenever the obs and action distributions differ even
     slightly, which silently breaks the residual heads' "zero-init == hold"
     identity (``training/model.py``): denormalizing a zero-init prediction
@@ -255,11 +254,11 @@ def compute_norm_stats(X: np.ndarray, Y: np.ndarray, act_dim: int):
 def split_indices(n: int, episodes, val_frac: float, seed: int, mode: str = "random"):
     """Deterministic (train_idx, val_idx) over the N windowed samples.
 
-    ``random``  : per-step permutation (adjacent frames can land on both sides --
-                  optimistic for next-pose data).
-    ``episode`` : hold out whole episodes (the last ceil(val_frac * n_episodes)
-                  in a seeded shuffle), so validation frames come from clips the
-                  model never saw. Requires >= 2 episodes.
+    ``random``  : per-step permutation (adjacent frames may land on both
+                  sides -- optimistic for next-pose data).
+    ``episode`` : hold out whole episodes -- the last ceil(val_frac *
+                  n_episodes) in a seeded shuffle -- so validation frames
+                  come from unseen clips. Requires >= 2 episodes.
     """
     rng = np.random.default_rng(seed)
     if mode == "random":

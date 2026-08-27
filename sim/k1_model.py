@@ -1,10 +1,9 @@
 """Load the Booster K1 and rigidly attach a table-tennis paddle to the right
-hand — without modifying the vendored asset.
-
-We read the vendored K1 MuJoCo XML as text, point meshdir at the vendored
-meshes (absolute, so it loads from anywhere), inject a paddle body into
-`right_hand_link`, and compile from the string. Single source of truth stays
-the vendored file; nothing under third_party/ is edited.
+hand, without modifying the vendored asset: read the vendored K1 MuJoCo XML
+as text, point meshdir at the vendored meshes (absolute, so it loads from
+anywhere), inject a paddle body into `right_hand_link`, and compile from the
+string. The vendored file remains the single source of truth; nothing under
+third_party/ is edited.
 """
 from __future__ import annotations
 

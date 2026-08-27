@@ -8,10 +8,10 @@ directory mode also writes <dir>/retarget-summary.json.
 Same pipeline as GMR/sim/bvh_to_robot.py minus the RobotMotionViewer.
 
 Options that do not touch the upstream GMR checkout:
-  --human_height H   passed as GMR's actual_human_height (default: the loader's
-                     hard-coded 1.75 m); GMR multiplies its human_scale_table by
-                     H / ik_config["human_height_assumption"] (1.8 for lafan1->g1).
-  --ik_config PATH   a repo-local IK config JSON used instead of GMR's
+  --human_height H   passed as GMR's actual_human_height (default: loader's hard-coded
+                     1.75 m); GMR multiplies human_scale_table by H / ik_config[
+                     "human_height_assumption"] (1.8 for lafan1->g1).
+  --ik_config PATH   repo-local IK config JSON used instead of GMR's
                      ik_configs/bvh_<format>_to_<robot>.json (injected into
                      general_motion_retargeting.params.IK_CONFIG_DICT at runtime).
   --jobs N           retarget N clips in parallel (directory mode).

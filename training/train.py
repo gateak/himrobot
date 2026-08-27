@@ -1,14 +1,13 @@
 """Behavior-cloning training loop.
 
-Run (from repo root, inside the torch venv):
+Run from repo root, inside the torch venv:
     ./.venv/bin/python -m training.train --root data/g1 --epochs 40 --val-split episode
-                                                         # next-pose BC on the retargeted G1 CSVs
-    ./.venv/bin/python -m training.train --root /nonexistent   # MLP on the synthetic sample
+        # next-pose BC on retargeted G1 CSVs
+    ./.venv/bin/python -m training.train --root /nonexistent  # MLP on the synthetic sample
     ./.venv/bin/python -m training.train --model transformer --context 8 --epochs 30
-    ./.venv/bin/python -m training.train --root data/parquet --ball   # LeRobot parquet + ball_state
+    ./.venv/bin/python -m training.train --root data/parquet --ball  # LeRobot parquet + ball_state
 
-Writes a self-contained checkpoint (default models/bc_policy.pt) that
-him_adapter.policy loads at deploy time.
+Writes a self-contained checkpoint (default models/bc_policy.pt) that him_adapter.policy loads at deploy time.
 """
 
 from __future__ import annotations

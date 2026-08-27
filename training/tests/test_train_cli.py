@@ -1,10 +1,7 @@
-"""CLI-level regression tests for training.train.main().
-
-Runs the real argument parser + a 1-epoch training loop against the
-synthetic data fallback (no --root data needed), so these catch
-startup/shape crashes that unit tests on individual functions would miss.
-Cheap: 1 epoch over the default synthetic sample (6000 steps) is well under
-a second on CPU.
+"""CLI regression tests for training.train.main(): run the real arg parser and a
+1-epoch loop against the synthetic data fallback (no --root needed) to catch
+startup/shape crashes unit tests on individual functions would miss. Cheap: 1
+epoch over the default synthetic sample (6000 steps) is well under a second on CPU.
 """
 
 from __future__ import annotations

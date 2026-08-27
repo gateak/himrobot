@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 #
-# make_refs_tarball.sh — pack our reference data (retargeted G1 motion, IK
-# config, runtime contract, paddle-IMU, ball 3D tracks) into a single tarball
-# to scp onto a GPU box for scripts/gpu_box_setup.sh (step 7) / Stage 1-2 of
-# docs/TRAINING_PLAN.md.
+# make_refs_tarball.sh — packs reference data (retargeted G1 motion, IK
+# config, runtime contract, paddle-IMU, ball 3D tracks) into one tarball to
+# scp onto a GPU box, for scripts/gpu_box_setup.sh (step 7) / Stage 1-2 of
+# docs/TRAINING_PLAN.md. Idempotent: rebuilds the staging dir and tarball
+# from scratch each run.
 #
-# Idempotent: rebuilds the staging dir and tarball from scratch each run.
-#
-# Usage:
-#   bash scripts/make_refs_tarball.sh
-# Output:
-#   work/pace/himrobot-refs.tgz
-#   work/pace/himrobot-refs.manifest.sha256   (sha256 per packed file, also inside the tarball)
+# Usage:  bash scripts/make_refs_tarball.sh
+# Output: work/pace/himrobot-refs.tgz
+#         work/pace/himrobot-refs.manifest.sha256 (sha256 per packed file, also inside the tarball)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

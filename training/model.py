@@ -22,19 +22,18 @@ def _zero_init(linear: nn.Linear) -> nn.Linear:
 class MLPPolicy(nn.Module):
     """Feed-forward joint-state -> joint-target regressor.
 
-    ``residual=True`` (default): output = x[:, :act_dim] + net(x), i.e. the net
-    predicts a correction to the current joints (the first act_dim obs dims),
-    in normalized space. With a zero-initialised last layer the model starts
-    exactly at the "hold" policy, which matters for next-pose data where
-    consecutive frames are nearly identical. The skip lives inside the module so
-    the deploy-side loader (him_adapter.policy) needs no change.
+    ``residual=True`` (default): output = x[:, :act_dim] + net(x) -- net predicts,
+    in normalized space, a correction to the current joints (obs's first act_dim
+    dims). A zero-initialised last layer starts the model exactly at the "hold"
+    policy, which matters for next-pose data where consecutive frames are nearly
+    identical. The skip lives inside the module, so the deploy-side loader
+    (him_adapter.policy) needs no change.
 
-    This "zero-init == hold" identity is only exact in *normalized* space when
-    the obs and action normalization stats agree on those first act_dim columns
-    (both sides are the same physical joints, but obs stats are fit over the
-    windowed input while act stats are fit over the target -- they don't match
-    for free). ``training.dataset.compute_norm_stats`` is what makes them
-    match; see ``training/tests/test_residual_hold.py``.
+    This "zero-init == hold" identity is exact only in *normalized* space, and only
+    if obs/action norm stats agree on those first act_dim columns: same physical
+    joints, but obs stats are fit over the windowed input while act stats are fit
+    over the target, so they don't match for free. ``training.dataset.compute_norm_stats``
+    makes them match; see ``training/tests/test_residual_hold.py``.
     """
 
     def __init__(self, obs_dim: int, act_dim: int, hidden=(256, 256), dropout: float = 0.0,

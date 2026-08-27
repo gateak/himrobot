@@ -1,22 +1,22 @@
 """Attach aligned depth to the 2D ball track (perception track, 2D -> 2.5D).
 
-For every detection in a ``ball2d_*.csv`` from ``sim/ball_detect.py`` this
-opens the depth PNG of the same frame (uint16, ``depth_png_unit`` from
-``session.json`` = millimetres, ``align_depth_to_color: true`` so (u, v) is the
-same pixel in both images), takes the median of the non-zero depth values
-inside the ball disc, and emits ``(frame, host_time_s, u, v, radius, depth_mm,
-n_valid, bg_depth_mm)``. ``bg_depth_mm`` is the median of an annulus around
-the disc: if ``depth_mm`` is about equal to it, the depth map did not resolve
-the ball and you are looking at the table/floor behind it.
+For each detection in a ``ball2d_*.csv`` (from ``sim/ball_detect.py``), opens
+that frame's depth PNG (uint16; ``depth_png_unit`` in ``session.json`` =
+millimetres; ``align_depth_to_color: true`` so (u, v) is the same pixel in
+both images), takes the median non-zero depth inside the ball disc, and
+emits ``(frame, host_time_s, u, v, radius, depth_mm, n_valid, bg_depth_mm)``.
+``bg_depth_mm`` is the median of a surrounding annulus: if ``depth_mm`` is
+about equal to it, the depth map missed the ball and you're seeing the
+table/floor behind it.
 
-Metric XYZ needs the colour intrinsics (fx, fy, cx, cy [, distortion]) which
-are NOT stored in the session; nothing here guesses them. If you have them,
-pass ``--intrinsics k.json`` (``{"fx":..,"fy":..,"cx":..,"cy":..}``, or a full
+Metric XYZ needs colour intrinsics (fx, fy, cx, cy [, distortion]), which are
+NOT stored in the session and are never guessed. Pass ``--intrinsics
+k.json`` (``{"fx":..,"fy":..,"cx":..,"cy":..}``, or a full
 ``work/calib/intrinsics_<serial>.json`` from ``sim/estimate_intrinsics.py``)
-and camera-frame ``X_cam, Y_cam, Z_cam`` (m) are added. If the JSON also
-carries a ``table_frame.camera_to_table_4x4`` (the estimate_intrinsics.py
-output does), ``X_table, Y_table, Z_table`` (m, table frame: origin at the
-net centre, x toward this camera's end line, y across the width, z up) are
+to add camera-frame ``X_cam, Y_cam, Z_cam`` (m); if that JSON also has
+``table_frame.camera_to_table_4x4`` (as estimate_intrinsics.py's output
+does), ``X_table, Y_table, Z_table`` (m, table frame: origin at the net
+centre, x toward this camera's end line, y across the width, z up) get
 added too.
 
     ~/him-tools/cv-venv/bin/python sim/ball_3d.py \\

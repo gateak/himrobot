@@ -1,18 +1,17 @@
-"""First movement-retargeting pass: make the K1's right arm reproduce a REAL
-recorded paddle motion, via damped-least-squares inverse kinematics.
+"""First movement-retargeting pass: damped-least-squares IK drives the K1's
+right arm to reproduce a REAL recorded paddle motion.
 
 Pipeline: read one human table-tennis episode's paddle IMU orientation ->
 build a target orientation trajectory -> solve the 4 right-arm joints each
-frame so the robot's paddle tracks it -> render the K1 swinging to a GIF.
+frame so the paddle tracks it -> render the swing to a GIF.
 
-HONESTY / scope:
-  * Uses the paddle IMU euler angles — the only directly-readable real stream
-    (the body mocap is FBX, which needs Blender/FBX-SDK we don't have yet).
-  * Tracks the *relative* orientation change (rebased to the first frame),
-    because the IMU's absolute frame is not calibrated to any world/robot
-    frame. So this reproduces "how the paddle turned during the swing," not an
-    absolute pose. It's the real mechanism on real data — a scaffold for the
-    movement track, not a calibrated, deployable retarget.
+HONESTY / scope: uses the paddle IMU euler angles, the only directly-readable
+real stream (body mocap is FBX, needing Blender/FBX-SDK we don't have yet).
+Tracks the *relative* orientation change (rebased to the first frame), since
+the IMU's absolute frame isn't calibrated to any world/robot frame — so this
+reproduces "how the paddle turned," not an absolute pose. Real mechanism on
+real data, but a scaffold for the movement track, not a calibrated,
+deployable retarget.
 """
 from __future__ import annotations
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Fetch third-party robot assets (gitignored; not committed).
 #
-# The Booster K1 is the real, public robot behind HIM's "Adam" table-tennis
-# fixture (BSD-3-Clause, (c) Booster Robotics). Its 22-joint layout matches
-# HIM's fixture. We vendor it under third_party/ so the sim scripts can load it.
+# Booster K1 is the real public robot behind HIM's "Adam" table-tennis fixture
+# (BSD-3-Clause, (c) Booster Robotics); its 22-joint layout matches HIM's Adam
+# fixture, so we vendor it under third_party/ for the sim scripts to load.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,13 +14,13 @@ else
   git clone --depth 1 https://github.com/BoosterRobotics/booster_assets third_party/booster_assets
 fi
 
-# Unitree G1 (current target robot): 29-DOF humanoid with a 7-DOF arm + wrist.
-# MuJoCo model from google-deepmind/mujoco_menagerie (sparse checkout).
+# Unitree G1 (current target robot): 29-DOF humanoid, 7-DOF arm + wrist; MuJoCo
+# model from google-deepmind/mujoco_menagerie (sparse checkout).
 #
-# Clone + sparse-checkout is two commands; check for the actual asset (not
-# just .git) and clone into a scratch dir first, so an interruption between
-# them (Ctrl-C, network drop, disk full) can never leave a .git-only
-# directory that this script would then treat as "already present" forever.
+# Clone+sparse-checkout is two steps, so clone into a scratch dir first and
+# check for the actual asset (not just .git): an interruption between the two
+# commands (Ctrl-C, network drop, disk full) could otherwise leave a .git-only
+# dir that this script would treat as "already present" forever.
 if [ -f third_party/mujoco_menagerie/unitree_g1/g1.xml ]; then
   echo "mujoco_menagerie already present."
 else

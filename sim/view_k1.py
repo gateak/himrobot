@@ -1,17 +1,16 @@
 #!/usr/bin/env python
-"""Watch the Booster K1 (22-DOF) humanoid move — locally, no HIM servers.
+"""Watch the Booster K1 (22-DOF) humanoid move locally, no HIM servers.
 
-Model: third_party/booster_assets/robots/K1/K1_22dof.xml
-       (c) 2025 Booster Robotics, BSD-3-Clause. This is the real, public K1
-       whose 22-joint layout matches HIM's "Adam" table-tennis fixture.
+Model: third_party/booster_assets/robots/K1/K1_22dof.xml — real, public K1
+((c) 2025 Booster Robotics, BSD-3-Clause), 22-joint layout matches HIM's
+"Adam" table-tennis fixture.
 
-Two modes:
-  * default  -> render a short kinematic arm-wave to a GIF you can open.
-  * --live   -> open the interactive MuJoCo viewer (drag to orbit).
+Modes: default renders a short kinematic arm-wave to a GIF; --live opens
+the interactive MuJoCo viewer (drag to orbit).
 
-This is a KINEMATIC preview: we set joint angles and call mj_forward. We do
-NOT step physics — a free-base humanoid with no balance controller would just
-fall over. The point here is to *see* the real robot and its joints move.
+KINEMATIC only: sets joint angles, calls mj_forward, no physics step — a
+free-base humanoid with no balance controller would fall over. Goal: see
+the real robot and its joints move.
 """
 from __future__ import annotations
 

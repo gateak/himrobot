@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
 #
-# gpu_box_setup.sh — bootstrap a fresh Ubuntu 22.04 NVIDIA box for PACE-style
+# gpu_box_setup.sh — bootstraps a fresh Ubuntu 22.04 NVIDIA box for PACE-style
 # Isaac Sim / Isaac Lab table-tennis RL training (himrobot G1/K1 port).
 #
-# Idempotent: safe to re-run; each step checks whether its target already
-# exists before doing work. Every version below is pinned; nothing floats to
-# "latest". Assumes the NVIDIA driver is ALREADY installed on the box — this
-# script verifies that with nvidia-smi and aborts with a clear message if not
-# (it does not install a driver itself).
+# Idempotent (each step checks for its target before acting); every version
+# below is pinned, nothing floats to "latest". Assumes the NVIDIA driver is
+# already installed — verifies via nvidia-smi and aborts with a clear message
+# if not (does not install a driver itself).
 #
-# Pins and commands are sourced from, and must not contradict:
-#   - work/pace/PACE_ANALYSIS.md  §1 (software pins), §8 (smoke command + checkpoint math)
+# Pins/commands sourced from, must not contradict:
+#   - work/pace/PACE_ANALYSIS.md  §1 (software pins), §8 (smoke cmd + checkpoint math)
 #   - work/pace/pace_pins.json    (machine-readable pins, PACE repo commit)
 #   - work/pace/BOX_OPTIONS.md    §3 (Isaac Sim 4.5 hardware requirements)
 #   - https://isaac-sim.github.io/IsaacLab/v2.1.0/source/setup/installation/pip_installation.html
-#     (linked from PACE's own README.md:51; fetched 2026-08-27 for the exact
-#     venv/pip/isaaclab.sh command sequence used below)
+#     (linked from PACE README.md:51; fetched 2026-08-27 for the venv/pip/isaaclab.sh
+#     command sequence used below)
 #
-# Usage (run ON the GPU box, as a sudo-capable non-root user):
+# Usage (on the GPU box, as a sudo-capable non-root user):
 #   bash scripts/gpu_box_setup.sh
-# Optional overrides (env vars): TT_HOME, REFS_TARBALL, CUDA_VARIANT (cu121|cu118),
+# Env var overrides: TT_HOME, REFS_TARBALL, CUDA_VARIANT (cu121|cu118),
 # SMOKE_ITERS, SMOKE_ENVS. See docs/TRAINING_PLAN.md for when/why to run this.
 
 set -euo pipefail

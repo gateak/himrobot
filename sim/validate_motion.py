@@ -3,9 +3,9 @@
 Usage: python sim/validate_motion.py --input <file.bvh|dir> --output <report.json>
         [--expected-fps 30] [--root Hips]
 
-Checks per clip: parseable HIERARCHY/MOTION, root joint present, frame count > 0,
-frame time matches the expected fps (±1%), channel count consistent with the
-hierarchy, no NaN/inf values. Exit code 1 if any clip fails.
+Per clip, checks parseable HIERARCHY/MOTION, root joint present, frame count > 0,
+frame time within ±1% of expected fps, channel count consistent with hierarchy,
+and no NaN/inf values. Exits 1 if any clip fails.
 """
 from __future__ import annotations
 

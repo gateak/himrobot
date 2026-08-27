@@ -1,13 +1,11 @@
-"""Zero-init residual heads must reproduce the exact "hold current joints"
-policy once denormalized -- the invariant training/model.py's docstring
-claims and him_adapter.BCPolicy.infer relies on.
-
-The identity only holds if the obs and action normalization stats agree on
-the shared joint columns (training.dataset.compute_norm_stats); these tests
-deliberately give obs and act different (but joint-angle-realistic) scales,
-so a regression (e.g. reverting to independently-fit obs/act stats) would
-blow well past 1e-6 -- unrealistically large offsets are avoided here since
-they'd trip float32 rounding on their own, independent of any real bug.
+"""Zero-init residual heads must exactly reproduce "hold current joints" once
+denormalized -- the invariant training/model.py's docstring claims and
+him_adapter.BCPolicy.infer relies on. The identity holds only if obs/action
+norm stats agree on the shared joint columns (training.dataset.compute_norm_stats).
+Tests deliberately use different (but joint-angle-realistic) obs/act scales, so
+reverting to independently-fit obs/act stats would blow past 1e-6; offsets stay
+modest since huge ones would trip float32 rounding on their own, regardless of
+any real bug.
 """
 
 from __future__ import annotations

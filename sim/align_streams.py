@@ -1,25 +1,23 @@
 """Time-align the three HIM table-tennis capture streams (paddle IMU, Orbbec RGB-D, Rokoko mocap).
 
 Three independent clocks:
-  * paddle IMU  - WitMotion iOS export, host wall-clock with NO timezone (HIM inferred America/New_York)
+  * paddle IMU  - WitMotion iOS export, host wall-clock, no timezone (HIM inferred America/New_York)
   * Orbbec      - host epoch seconds (frames.jsonl host_time_s, session.json host_time_start_s)
   * Rokoko FBX  - no per-frame absolute time; only an export CreationTimeStamp in the FBX header
 
-What this script does (everything is derived from files on disk, nothing is assumed):
+Steps (all derived from files on disk, nothing assumed):
   1. session map   : pair IMU episode <-> Orbbec session <-> Rokoko clip by name/start time and duration.
-  2. IMU <-> mocap  : cross-correlate IMU |gyro| against RightHand world speed from the BVH (FK),
-                     both resampled to a common rate, over a +/- lag window; plus swing-peak matching.
+  2. IMU <-> mocap  : cross-correlate IMU |gyro| against RightHand world speed from the BVH (FK), both
+                     resampled to a common rate, over a +/- lag window; plus swing-peak matching.
   3. IMU <-> Orbbec : compare IMU episode start (UTC as inferred by HIM) with Orbbec host_time_start_s;
                      the 3 h discrepancy is a timezone-offset question, reported from the data.
   4. FBX headers   : parse the binary FBX node tree for CreationTimeStamp / take name / take length.
 
 Usage (defaults match the local data layout):
   ~/him-tools/mujoco-venv/bin/python sim/align_streams.py --out work/alignment
-  ... --orbbec-motion      # also build a frame-difference motion signal from the Orbbec color
-                           # frames and cross-correlate it with the IMU (reads every JPG, ~1-2 min)
-  ... --bvh-dir DIR         # Blender BVH exports of the Rokoko clips (Clip*.bvh, *_nofingers.bvh skipped);
-                           # default work/bvh (repo)
-  ... --orbbec-dir DIR ...  # override the default, which is every extracted data/orbbec_*/ directory (sorted)
+  ... --orbbec-motion    # frame-difference motion signal from the Orbbec color frames, xcorr'd with IMU (reads every JPG, ~1-2 min)
+  ... --bvh-dir DIR      # Blender BVH exports of the Rokoko clips (Clip*.bvh; *_nofingers.bvh skipped); default work/bvh (repo)
+  ... --orbbec-dir DIR   # override the default: every extracted data/orbbec_*/ directory (sorted)
 
 Outputs (under --out): session-map.json, fbx-headers.json, imu-mocap-xcorr.csv,
 imu-orbbec-clock.json, xcorr_<episode>_<clip>.png, xcorr-matrix.png.
@@ -134,11 +132,10 @@ def _rot(axis: str, a: np.ndarray) -> np.ndarray:
 
 
 def bvh_world_transform(joints, data, target: str) -> tuple[np.ndarray, np.ndarray]:
-    """World position (N,3) and rotation (N,3,3) of `target` via FK along its chain. Standard BVH
-    semantics: local = T(pos) @ R(ch1) @ R(ch2) @ R(ch3). Blender's exporter (rotate_mode=NATIVE,
-    root_transform_only=False) writes 6 channels per bone whose position channels already include
-    the rest offset, so when position channels exist they REPLACE the OFFSET. Verified against
-    Blender's own pose_bone.head on Clip.fbx (work/alignment/verify): Hips exact, RightHand within 1.2 cm mean."""
+    """World position (N,3) and rotation (N,3,3) of `target` via FK along its chain: local = T(pos) @
+    R(ch1) @ R(ch2) @ R(ch3) (standard BVH). Blender's exporter (rotate_mode=NATIVE, root_transform_only=False)
+    writes 6 channels/bone whose position channels already include the rest offset, so when present they REPLACE
+    the OFFSET. Verified against Blender's pose_bone.head on Clip.fbx (work/alignment/verify): Hips exact, RightHand within 1.2 cm mean."""
     names = [j["name"] for j in joints]
     k = names.index(target)
     chain = []

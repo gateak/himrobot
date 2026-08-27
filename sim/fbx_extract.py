@@ -1,12 +1,12 @@
 """Extract per-frame arm-bone rotations from a Rokoko FBX clip.
 
-Runs inside the Blender binary (headless), because the FBX is binary and
-Blender's importer is the reliable reader. Blender ships its own Python + numpy,
-so no venv is needed. For each frame it records each bone's rotation *relative
-to its rest pose* (pose_bone.matrix_basis) as XYZ euler radians — exactly the
-per-joint motion we retarget onto the robot.
+Runs headless inside the Blender binary — FBX is binary and Blender's importer
+is the reliable reader; Blender bundles its own Python + numpy, so no venv is
+needed. Per frame, records each bone's rotation relative to its rest pose
+(pose_bone.matrix_basis) as XYZ euler radians — the per-joint motion retargeted
+onto the robot.
 
-Usage (note the `--` that separates Blender's args from ours):
+Usage (`--` separates Blender's args from ours):
     /Applications/Blender.app/Contents/MacOS/Blender -b --python sim/fbx_extract.py -- <clip.fbx> <out.npz>
 """
 import sys

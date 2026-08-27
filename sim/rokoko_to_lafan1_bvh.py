@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """Rewrite a Rokoko "Newton" BVH (Blender export, 6 channels/joint, cm, Y-up)
-into a BVH whose bone names match what GMR's `--format lafan1` loader expects.
+so its bone names match what GMR's `--format lafan1` loader expects.
 
-What GMR actually needs (general_motion_retargeting/utils/lafan1.py +
+GMR requires (see general_motion_retargeting/utils/lafan1.py and
 ik_configs/bvh_lafan1_to_g1.json):
-  * bones looked up BY NAME in a dict, so extra bones are tolerated;
+  * bones are looked up by name in a dict, so extra bones are tolerated;
   * only these names are used: Hips, Spine2, Left/RightUpLeg, Left/RightLeg,
     Left/RightFoot, Left/RightToe, Left/RightArm, Left/RightForeArm,
-    Left/RightHand (Spine/Spine1/Neck/Head/Shoulder are NOT used by the G1 config);
-  * 3 or 6 channels per joint both parse (6-channel positions override offsets);
-  * units are centimetres (loader divides by 100) and the skeleton is Y-up
-    (loader rotates Y-up -> Z-up itself);
-  * Euler order is taken from the CHANNELS line (Xrotation Yrotation Zrotation ok).
+    Left/RightHand (Spine/Spine1/Neck/Head/Shoulder unused by the G1 config);
+  * 3- or 6-channel joints both parse (6-channel positions override offsets);
+  * units are cm (loader divides by 100); skeleton is Y-up (loader rotates
+    it to Z-up itself);
+  * Euler order comes from the CHANNELS line (Xrotation Yrotation Zrotation ok).
 
-Therefore this script ONLY renames bones; no unit change, no axis change, no
-hierarchy surgery. Spine3 is kept under its own name (harmless extra bone) so
-the chain Hips>Spine>Spine1>Spine3>Spine2>Neck>Head is intact, and "Spine2"
-(the torso target) is Rokoko Spine4 = the chest bone that carries Neck and
-both Shoulders, matching LAFAN1 topology. Optionally finger bones can be
-dropped (--drop-fingers) which also removes their motion columns.
+So this script only renames bones -- no unit, axis, or hierarchy change.
+Spine3 keeps its own name (harmless extra bone), so the chain
+Hips>Spine>Spine1>Spine3>Spine2>Neck>Head stays intact; "Spine2" (the torso
+target) is Rokoko's Spine4, the chest bone carrying Neck and both Shoulders --
+matching LAFAN1 topology. --drop-fingers optionally drops finger bones and
+their motion columns.
 """
 import argparse, hashlib, json, os, re
 
