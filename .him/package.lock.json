@@ -2,7 +2,7 @@
   "artifacts": [],
   "contracts": {
     "runtime_interfaces:0:.him/contracts/runtime.json": "sha256:716845318382412a1e1f8caea7b96b71562d66eabcb21101e58145c33e48a1bb",
-    "training_pipelines:0:contracts/training-pipeline.json": "sha256:ea3b2ecc8f3129f262c2d98067b0b8454333f5312798539a99ddaa7638594d92"
+    "training_pipelines:0:contracts/training-pipeline.json": "sha256:3200c3390a4fb5521a15dd0e38404c821cbd1337633b326f66cc7f66771c607b"
   },
   "entrypoints": [
     {
@@ -51,8 +51,8 @@
       },
       {
         "path": ".him/commands/README.md",
-        "sha256": "6fd03f01e0f76b4b55af49fd57b25de4efb4cfbc0326e0726271f95f23c8e08e",
-        "size_bytes": 847,
+        "sha256": "2850538647c1dcdaa79a8e2c5ff9e12e788f080910ac8d84e6f52860b9e71513",
+        "size_bytes": 1028,
         "visibility": "private"
       },
       {
@@ -63,8 +63,8 @@
       },
       {
         "path": ".him/contracts/training-pipeline.json",
-        "sha256": "ea3b2ecc8f3129f262c2d98067b0b8454333f5312798539a99ddaa7638594d92",
-        "size_bytes": 8882,
+        "sha256": "3200c3390a4fb5521a15dd0e38404c821cbd1337633b326f66cc7f66771c607b",
+        "size_bytes": 9844,
         "visibility": "private"
       },
       {
@@ -104,7 +104,7 @@
     "name": "him",
     "version": "1.0.0-local"
   },
-  "lock_digest": "sha256:72489c7aa893b0584abd09d54542dd82a83dadc7716279b7b85ca43739b33e6a",
+  "lock_digest": "sha256:53039b11a7b68341b1cf585b26fd016cade0cb3c54a146ab4d85f3cde2f2a690",
   "package": {
     "kind": "brain",
     "manifest_digest": "sha256:658064aa371b571b4d42284b26bf909963818510c01a0eaae5eb6d0a17e32dfb",
@@ -115,7 +115,7 @@
   "source": {
     "clean": false,
     "commit": null,
-    "digest": "sha256:04494fadc9a2c4174c19a8a075a94f71cb9651a3e7d20aa107970875cac56960",
+    "digest": "sha256:ade30ee06640ee52244a057ea427e5720471935e2fccb8d4b579f6d2daa43643",
     "repository": null,
     "submodules": {},
     "type": "git"

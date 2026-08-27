@@ -19,6 +19,7 @@ Usage (defaults match the local data layout):
                            # frames and cross-correlate it with the IMU (reads every JPG, ~1-2 min)
   ... --bvh-dir DIR         # Blender BVH exports of the Rokoko clips (Clip*.bvh, *_nofingers.bvh skipped);
                            # default work/bvh (repo)
+  ... --orbbec-dir DIR ...  # override the default, which is every extracted data/orbbec_*/ directory (sorted)
 
 Outputs (under --out): session-map.json, fbx-headers.json, imu-mocap-xcorr.csv,
 imu-orbbec-clock.json, xcorr_<episode>_<clip>.png, xcorr-matrix.png.
@@ -40,7 +41,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 HOME = Path.home()
 DEFAULT_IMU = REPO / "data/him-table-tennis-paddle-imu-20260815"
-DEFAULT_ORBBEC = [REPO / "data/orbbec_20260815_214619", REPO / "data/orbbec_20260815_215350"]
+DEFAULT_ORBBEC = sorted(p for p in (REPO / "data").glob("orbbec_*") if p.is_dir())
 DEFAULT_FBX = REPO / "data/rokoko-motion-capture"
 DEFAULT_BVH = REPO / "work/bvh"
 FBX_KTIME_PER_S = 46186158000  # FBX SDK time unit (KTime ticks per second)
@@ -441,17 +442,24 @@ def wall_clock_iso(epoch_naive: float) -> str:
 
 def orbbec_clock_records(orb: dict, imu: dict, extra_tars: list[Path]) -> list[dict]:
     """Per Orbbec session: host epoch, directory-name wall clock, implied host UTC offset and the IMU
-    episodes whose wall-clock window overlaps it. Failed (0-byte) tars contribute name-only records."""
+    episodes whose wall-clock window overlaps it. Tars under data/release that are not extracted contribute
+    name-only records; every record carries the tar's byte size when the tar exists."""
+    tars = {t.stem: t for t in extra_tars}
     rows = []
     for name, s in orb.items():
         hs = s["session"]["host_time_start_s"]
+        tar = tars.get(name)
         launch = s["launch_local_naive"]
         utc_naive = dt.datetime.fromtimestamp(hs, dt.timezone.utc).replace(tzinfo=None)
         offset_h = round((launch - utc_naive).total_seconds() / 3600.0)
         wall_start = hs + 3600 * offset_h  # host wall clock, expressed as a naive epoch
         cam0 = next(iter(s["cams"].values()))
         first_wall, last_wall = cam0["first_host_time_s"] + 3600 * offset_h, cam0["last_host_time_s"] + 3600 * offset_h
-        rec = {"orbbec_session": name, "status": "on disk", "host_time_start_s": hs, "created_utc": s["session"]["created_utc"],
+        rec = {"orbbec_session": name, "status": "on disk", "tar_bytes": tar.stat().st_size if tar else None,
+               "cam_labels": list(s["cams"]), "n_frames_per_cam": {c: v["n_frames"] for c, v in s["cams"].items()},
+               "session_json_frame_counts": s["session"].get("frame_counts"), "fps_prefer": s["session"].get("fps_prefer"),
+               "session_json_duration_s": s["session"].get("duration_s"),
+               "host_time_start_s": hs, "created_utc": s["session"]["created_utc"],
                "host_time_start_utc": dt.datetime.fromtimestamp(hs, dt.timezone.utc).isoformat(),
                "dir_name_wall_clock": launch.isoformat(), "implied_host_utc_offset_h": offset_h,
                "host_start_wall_clock": wall_clock_iso(wall_start), "launch_to_host_start_s": round(wall_start - launch.replace(tzinfo=dt.timezone.utc).timestamp(), 3),
@@ -479,7 +487,9 @@ def orbbec_clock_records(orb: dict, imu: dict, extra_tars: list[Path]) -> list[d
             continue
         stamp = name.split("_")[1] + name.split("_")[2]
         launch = dt.datetime.strptime(stamp, "%Y%m%d%H%M%S")
-        rec = {"orbbec_session": name, "status": f"tar on disk is {tar.stat().st_size} bytes (failed download); name only",
+        size = tar.stat().st_size
+        status = "0-byte tar (failed download); name only" if size == 0 else f"tar on disk ({size} bytes) but not extracted; name only"
+        rec = {"orbbec_session": name, "status": status, "tar_bytes": size,
                "dir_name_wall_clock": launch.isoformat(), "imu_candidates": []}
         for ep, e in imu.items():
             d = e["start_local_naive"] - launch.replace(tzinfo=dt.timezone.utc).timestamp()
@@ -495,7 +505,8 @@ def main() -> int:
     ap.add_argument("--imu-dir", type=Path, default=DEFAULT_IMU)
     ap.add_argument("--orbbec-dir", type=Path, nargs="*", default=DEFAULT_ORBBEC)
     ap.add_argument("--orbbec-tars", type=Path, nargs="*", default=sorted((REPO / "data/release").glob("orbbec_*.tar")),
-                    help="tar files whose names give the launch wall clock of sessions not extracted (0-byte failed downloads)")
+                    help="release tars; their byte sizes are recorded per session, and a tar with no extracted directory "
+                         "contributes a name-only record (launch wall clock from the file name)")
     ap.add_argument("--fbx-dir", type=Path, default=DEFAULT_FBX)
     ap.add_argument("--bvh-dir", type=Path, default=DEFAULT_BVH)
     ap.add_argument("--out", type=Path, default=Path("work/alignment"))
@@ -537,7 +548,8 @@ def main() -> int:
                   f"{[(c['episode'][-6:], c['imu_start_minus_orbbec_launch_s']) for c in rec['imu_candidates']]}")
             continue
         print(f"[clock] {rec['orbbec_session']}: host epoch -> UTC {rec['host_time_start_utc']}, dir-name wall clock {rec['dir_name_wall_clock']} "
-              f"=> host UTC offset {rec['implied_host_utc_offset_h']:+d} h; frames {rec['first_frame_wall_clock']} .. {rec['last_frame_wall_clock']} (wall)")
+              f"=> host UTC offset {rec['implied_host_utc_offset_h']:+d} h; frames {rec['first_frame_wall_clock']} .. {rec['last_frame_wall_clock']} (wall); "
+              f"cams {rec['n_frames_per_cam']}, fps_prefer {rec['fps_prefer']}, {rec['duration_s']}s of frames, tar {rec['tar_bytes']} bytes")
         for c in rec["imu_candidates"]:
             print(f"        vs IMU {c['episode'][-6:]} ({c['imu_start_wall_clock']} wall, {c['imu_duration_s']}s): Orbbec-IMU start = "
                   f"{c['orbbec_minus_imu_start_s_ny_inference']:+.1f}s with HIM's NY inference, {c['orbbec_minus_imu_start_s_same_wall_clock']:+.1f}s if "
