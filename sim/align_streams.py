@@ -37,7 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[1]
 HOME = Path.home()
 DEFAULT_IMU = HOME / "him-data/him-table-tennis-paddle-imu-20260815"
 DEFAULT_ORBBEC = [HOME / "him-data/orbbec_20260815_214619", HOME / "him-data/orbbec_20260815_215350"]
