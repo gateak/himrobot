@@ -1,12 +1,13 @@
 """Extract per-frame arm-bone rotations from a Rokoko FBX clip.
 
-Runs under the python3.11 side-venv with Blender-as-a-module (bpy), because the
-FBX is binary and bpy is the reliable reader. For each frame it records each
-bone's rotation *relative to its rest pose* (pose_bone.matrix_basis) as XYZ
-euler radians — exactly the per-joint motion we retarget onto the K1.
+Runs inside the Blender binary (headless), because the FBX is binary and
+Blender's importer is the reliable reader. Blender ships its own Python + numpy,
+so no venv is needed. For each frame it records each bone's rotation *relative
+to its rest pose* (pose_bone.matrix_basis) as XYZ euler radians — exactly the
+per-joint motion we retarget onto the robot.
 
-Usage (note the `--` that separates bpy's args from ours):
-    .venv-fbx/bin/python sim/fbx_extract.py -- <clip.fbx> <out.npz>
+Usage (note the `--` that separates Blender's args from ours):
+    /Applications/Blender.app/Contents/MacOS/Blender -b --python sim/fbx_extract.py -- <clip.fbx> <out.npz>
 """
 import sys
 
@@ -19,8 +20,12 @@ BONES = ["Hips", "Spine2", "Spine4", "RightShoulder", "RightArm", "RightForeArm"
 
 
 def main():
+    if "--" not in sys.argv:
+        sys.exit("usage: Blender -b --python sim/fbx_extract.py -- <clip.fbx> <out.npz>  (missing '--' separator)")
     argv = sys.argv[sys.argv.index("--") + 1:]
-    fbx_path, out_path = argv[0], argv[1]
+    if len(argv) != 2:
+        sys.exit("usage: Blender -b --python sim/fbx_extract.py -- <clip.fbx> <out.npz>")
+    fbx_path, out_path = argv
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     try:
@@ -32,7 +37,14 @@ def main():
     arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
     present = [b for b in BONES if b in arm.pose.bones]
     scene = bpy.context.scene
-    frames = list(range(scene.frame_start, scene.frame_end + 1))
+    # The FBX importer does not set the scene range (stays 1..250); take the
+    # clip length from the armature's action, like fbx_to_bvh.py does.
+    action = arm.animation_data.action if arm.animation_data else None
+    if action is not None:
+        start, end = int(action.frame_range[0]), int(action.frame_range[1])
+    else:
+        start, end = scene.frame_start, scene.frame_end
+    frames = list(range(start, end + 1))
     fps = scene.render.fps / max(1, scene.render.fps_base)
 
     # World-space arm landmarks (for robust position-based retargeting):

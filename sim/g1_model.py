@@ -2,7 +2,7 @@
 paddle to the right hand — without editing the vendored asset.
 
 The G1 has a full 7-DOF right arm (shoulder pitch/roll/yaw, elbow, wrist
-roll/pitch/yaw), so retargeted human motion looks natural (unlike the
+roll/pitch/yaw), so IK can place the wrist of retargeted human motion (unlike the
 wrist-less K1). Model source: github.com/google-deepmind/mujoco_menagerie.
 """
 from __future__ import annotations

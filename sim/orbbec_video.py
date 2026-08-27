@@ -1,54 +1,66 @@
-"""Stitch an Orbbec session's color frames (stored as JPGs inside the tar) into
-a playable MP4 so you can watch the raw capture footage.
+"""Stitch an Orbbec session's colour frames into a playable MP4 so a human can
+watch the raw capture. Works on an extracted session directory or the tar.
 
-    ./.venv/bin/python sim/orbbec_video.py --start 0 --count 1800 --fps 30
+    ~/him-tools/cv-venv/bin/python sim/orbbec_video.py \\
+        --session ~/him-data/orbbec_20260815_215350 --cam cam0 --fps 0
+``--fps 0`` = real-time playback from the host timestamps (median frame gap);
+frames are written as-is, so dropped frames are not re-timed.
 """
 from __future__ import annotations
 
 import argparse
 import os
-import tarfile
+import sys
 
 import cv2
 import numpy as np
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEF_TAR = os.path.join(REPO, "data", "orbbec_20260815_221035_60fps.tar")
-DEF_DIR = "orbbec_20260815_221035_60fps/cam0_CP0E8530008F/color"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ball_detect import DEF_CAM, DEF_SESSION, OUT_DIR, Session, iter_frames  # noqa: E402
+
+
+def open_writer(path, fps, size):
+    for fourcc in ("avc1", "mp4v"):
+        w = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*fourcc), fps, size)
+        if w.isOpened():
+            return w, fourcc
+        w.release()
+    raise SystemExit("no usable MP4 encoder in this OpenCV build")
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--tar", default=DEF_TAR)
-    ap.add_argument("--color-dir", default=DEF_DIR)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--session", default=DEF_SESSION, help="session directory or .tar")
+    ap.add_argument("--tar", help="alias of --session for a .tar (backward compat)")
+    ap.add_argument("--cam", default=DEF_CAM)
     ap.add_argument("--start", type=int, default=0)
-    ap.add_argument("--count", type=int, default=1800)
-    ap.add_argument("--fps", type=int, default=30, help="playback fps (footage is 60; 30 = half-speed)")
-    ap.add_argument("--out", default=os.path.join(REPO, "sim", "orbbec_footage.mp4"))
+    ap.add_argument("--count", type=int, default=None, help="default: all frames")
+    ap.add_argument("--fps", type=float, default=0.0,
+                    help="playback fps; 0 = median host-timestamp rate of the session")
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    want = {f"{args.color_dir}/{i:06d}.jpg" for i in range(args.start, args.start + args.count)}
-    writer = None
-    n = 0
-    with tarfile.open(args.tar) as tf:
-        for m in tf:  # archive order is ascending frame index
-            if m.name not in want:
-                continue
-            buf = np.frombuffer(tf.extractfile(m).read(), np.uint8)
-            img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-            if img is None:
-                continue
-            if writer is None:
-                h, w = img.shape[:2]
-                writer = cv2.VideoWriter(args.out, cv2.VideoWriter_fourcc(*"mp4v"),
-                                         args.fps, (w, h))
-            writer.write(img)
-            n += 1
-            if n >= args.count:
-                break
+    sess = Session(args.tar or args.session)
+    cam = sess.resolve_cam(args.cam)
+    fps = args.fps
+    if fps <= 0:
+        t = np.array([r["host_time_s"] for r in sess.frames(cam)])
+        fps = float(round(1.0 / np.median(np.diff(t)), 2)) if len(t) > 1 else 30.0
+    out = args.out or os.path.join(OUT_DIR, f"{sess.name}_{cam}_color.mp4")
+    if os.path.dirname(out):
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+
+    writer, codec, n = None, None, 0
+    for _idx, _t, img in iter_frames(sess, cam, args.start, args.count):
+        if writer is None:
+            h, w = img.shape[:2]
+            writer, codec = open_writer(out, fps, (w, h))
+        writer.write(img)
+        n += 1
     if writer is not None:
         writer.release()
-    print(f"wrote {args.out}  ({n} frames @ {args.fps}fps playback)")
+    print(f"wrote {out}  ({n} frames @ {fps} fps playback, codec {codec})")
     return 0 if n else 1
 
 

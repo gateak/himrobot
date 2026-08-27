@@ -1,15 +1,23 @@
 """Dataset loading for behavior cloning.
 
-Two sources, chosen automatically:
+Three sources, chosen automatically from what is under ``cfg.data.root``:
 
-  * LeRobot-v3 parquet episodes under ``cfg.data.root`` (what the real HIM
-    table-tennis release exports to). Requires ``pyarrow``.
-  * A synthetic sample, used when no parquet is present, so the training loop
-    is runnable end-to-end today. The synthetic "expert" is a fixed, mildly
-    non-trivial joint-state -> joint-target map, so BC has something learnable
-    (and a trained model should clearly beat the hold baseline on it).
+  1. LeRobot-v3 parquet episodes (what a real HIM robot obs/action release
+     would export to). Requires ``pyarrow``. Takes priority when present.
+  2. Retargeted G1 motion CSVs (``sim/gmr_bvh_to_g1_headless.py`` output):
+     one ``*.csv`` per clip, no header, each row =
+     ``root xyz (3, m) | root quat xyzw (4) | 29 joint angles (rad)`` at 30 fps,
+     joints in the order of ``gmr_g1_joint_order.txt`` alongside (checked against
+     the runtime contract's ``extensions.robot.joint_order``). Selected when the
+     root holds CSVs and no parquet. Becomes a next-pose behavior-cloning set:
+     ``obs = joints[t]``, ``act = joints[t+1]``; one episode per file.
+     By default the root pose is EXCLUDED from obs (see ``_load_csv`` for why);
+     ``cfg.data.csv_root_in_obs`` appends root height + quat.
+  3. A synthetic sample, used when neither is present, so the training loop
+     is runnable end-to-end anywhere. The synthetic "expert" is a fixed, mildly
+     non-trivial joint-state -> joint-target map, so BC has something learnable.
 
-Both paths return per-timestep arrays plus episode boundaries, so a windowed
+All paths return per-timestep arrays plus episode boundaries, so a windowed
 (sequence) model can be trained without leaking across episode edges.
 """
 
@@ -71,6 +79,78 @@ def _load_parquet(cfg):
     return np.concatenate(obs_rows), np.concatenate(act_rows), episodes
 
 
+def check_csv_joint_order(root: str, cfg) -> str:
+    """Compare ``<root>/<csv_joint_order_file>`` with the contract joint order.
+
+    Returns a short note for provenance. Raises if the file exists and disagrees:
+    a mis-ordered checkpoint would emit actions in the wrong joint order at deploy
+    time, and that must not pass silently.
+    """
+    path = os.path.join(root, cfg.data.csv_joint_order_file)
+    if not os.path.isfile(path):
+        return "joint order file absent (order assumed = contract)"
+    with open(path) as fh:
+        names = [ln.strip() for ln in fh if ln.strip()]
+    expected = list(cfg.data.joint_order)
+    if names != expected:
+        diff = [(i, a, b) for i, (a, b) in enumerate(zip(names, expected)) if a != b]
+        raise RuntimeError(
+            f"{path}: joint order differs from the runtime contract "
+            f"(extensions.robot.joint_order): {len(names)} vs {len(expected)} names; "
+            f"first mismatches {diff[:3]}"
+        )
+    return f"joint order verified against contract ({len(names)} names)"
+
+
+def _load_csv(cfg):
+    """Retargeted G1 motion CSVs -> next-pose BC arrays.
+
+    Observation design: obs[t] = joint angles at t (29). The root position and
+    orientation are dropped by default because (a) the deployment contract only
+    provides ``robot.joint_position`` -- there is no root/base signal to feed
+    at inference time, and (b) root xy is world-frame mocap placement, which is
+    meaningless to a proprioceptive policy. With ``csv_root_in_obs=True`` the
+    root height z and quaternion xyzw are appended (5 extra dims, joints still
+    first) for offline experiments; such a checkpoint cannot be served by
+    ``him_adapter`` as-is.
+    Action: act[t] = joint angles at t+1 (the pose 1/30 s later). The last
+    frame of each clip has no successor and is dropped.
+    """
+    files = sorted(glob.glob(os.path.join(cfg.data.root, "*.csv")))
+    if not files:
+        return None
+    J, R = cfg.data.joints, cfg.data.csv_root_cols
+    want = R + J
+    order_note = check_csv_joint_order(cfg.data.root, cfg)
+
+    obs_rows, act_rows, episodes = [], [], []
+    cursor = 0
+    for path in files:
+        arr = np.loadtxt(path, delimiter=",", dtype=np.float64, ndmin=2)
+        if arr.shape[1] != want:
+            raise RuntimeError(
+                f"{path}: expected {want} columns (root {R} + joints {J}), got {arr.shape[1]}"
+            )
+        if not np.isfinite(arr).all():
+            raise RuntimeError(f"{path}: non-finite values")
+        if len(arr) < 2:
+            continue  # no (t, t+1) pair
+        joints = arr[:, R:].astype(np.float32)
+        obs = joints[:-1]
+        if cfg.data.csv_root_in_obs:
+            root_feat = arr[:-1, [2, 3, 4, 5, 6]].astype(np.float32)  # z, qx, qy, qz, qw
+            obs = np.concatenate([obs, root_feat], axis=1)
+        act = joints[1:]
+        n = len(obs)
+        obs_rows.append(obs)
+        act_rows.append(act)
+        episodes.append((cursor, cursor + n))
+        cursor += n
+    if not obs_rows:
+        raise RuntimeError(f"{cfg.data.root}: CSV files present but none has >= 2 rows")
+    return np.concatenate(obs_rows), np.concatenate(act_rows), episodes, order_note
+
+
 def _synthetic(cfg):
     rng = np.random.default_rng(cfg.train.seed)
     J = cfg.data.joints
@@ -105,11 +185,22 @@ def _synthetic(cfg):
 
 
 def build_arrays(cfg):
-    """Return (obs[N,obs_dim], act[N,act_dim], episodes, source_str)."""
+    """Return (obs[N,obs_dim], act[N,act_dim], episodes, source_str).
+
+    Priority: parquet > csv > synthetic.
+    """
     loaded = _load_parquet(cfg)
     if loaded is not None:
         obs, act, episodes = loaded
         return obs, act, episodes, f"lerobot-parquet:{cfg.data.root}"
+    loaded = _load_csv(cfg)
+    if loaded is not None:
+        obs, act, episodes, note = loaded
+        root_note = "obs=joints+root(z,quat)" if cfg.data.csv_root_in_obs else "obs=joints only"
+        return obs, act, episodes, (
+            f"g1-motion-csv:{cfg.data.root} ({len(episodes)} clips @ {cfg.data.csv_fps:g} fps, "
+            f"next-pose BC, {root_note}; {note})"
+        )
     obs, act, episodes = _synthetic(cfg)
     return obs, act, episodes, "synthetic"
 
@@ -134,3 +225,32 @@ def make_windows(obs, act, episodes, context: int):
             xs.append(window)
             ys.append(act[t])
     return np.asarray(xs, np.float32), np.asarray(ys, np.float32)
+
+
+def split_indices(n: int, episodes, val_frac: float, seed: int, mode: str = "random"):
+    """Deterministic (train_idx, val_idx) over the N windowed samples.
+
+    ``random``  : per-step permutation (adjacent frames can land on both sides --
+                  optimistic for next-pose data).
+    ``episode`` : hold out whole episodes (the last ceil(val_frac * n_episodes)
+                  in a seeded shuffle), so validation frames come from clips the
+                  model never saw. Requires >= 2 episodes.
+    """
+    rng = np.random.default_rng(seed)
+    if mode == "random":
+        perm = rng.permutation(n)
+        n_val = max(1, int(n * val_frac))
+        return perm[n_val:], perm[:n_val]
+    if mode == "episode":
+        if len(episodes) < 2:
+            raise ValueError("episode split needs at least 2 episodes")
+        ep_perm = rng.permutation(len(episodes))
+        n_val_ep = max(1, int(np.ceil(len(episodes) * val_frac)))
+        n_val_ep = min(n_val_ep, len(episodes) - 1)
+        val_eps = set(ep_perm[:n_val_ep].tolist())
+        is_val = np.zeros(n, dtype=bool)
+        for i, (s, e) in enumerate(episodes):
+            if i in val_eps:
+                is_val[s:e] = True
+        return np.flatnonzero(~is_val), np.flatnonzero(is_val)
+    raise ValueError(f"unknown val_split: {mode!r}")

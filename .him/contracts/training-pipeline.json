@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "pipeline_id": "rokoko-to-g1-motion-tracking-v1",
-  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) -> MuJoCo preview video. Every stage is local CPU code in this repository (sim/). Tracking-policy training is NOT configured (needs an NVIDIA runner).",
+  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) with the repo-local IK config sim/ik_configs/bvh_lafan1_rokoko_to_g1.json (rotation offsets re-derived for Rokoko/Blender identity rest frames; the upstream GMR bvh_lafan1_to_g1.json offsets assume LAFAN1 rest-bone frames and gave 50-69 cm mean wrist error on these clips vs 10-12 cm with this config, see docs/PROJECT_KNOWLEDGE.md section 4c) -> MuJoCo preview video. Every stage is local CPU code in this repository (sim/). Tracking-policy training is NOT configured (needs an NVIDIA runner).",
   "parameters": {
     "python": "python3",
     "gmr_python": "/Users/akbar/him-tools/gmr-venv/bin/python",
@@ -191,7 +191,11 @@
           "--robot",
           "${robot}",
           "--fps",
-          "${motion_fps}"
+          "${motion_fps}",
+          "--ik_config",
+          "sim/ik_configs/bvh_lafan1_rokoko_to_g1.json",
+          "--jobs",
+          "4"
         ],
         "image_ref": null,
         "image_digest": null,
@@ -208,6 +212,13 @@
           "name": "rename_summary",
           "role": "preprocess_report",
           "uri": null,
+          "format": "json",
+          "optional": false
+        },
+        {
+          "name": "ik_config",
+          "role": "ik_config",
+          "uri": "sim/ik_configs/bvh_lafan1_rokoko_to_g1.json",
           "format": "json",
           "optional": false
         }
@@ -235,7 +246,8 @@
         "key_fields": [
           "rename_summary.sha256",
           "robot",
-          "motion_fps"
+          "motion_fps",
+          "ik_config.sha256"
         ]
       },
       "approval_gate": "none",
@@ -327,10 +339,13 @@
       "robot_model": "google-deepmind/mujoco_menagerie unitree_g1 (BSD-3)",
       "fbx_import": "Blender 3.4.1"
     },
-    "machine_specific_parameters": [
-      "gmr_python",
-      "mujoco_python"
-    ],
+    "machine_specific_parameters": {
+      "parameters": [
+        "gmr_python",
+        "mujoco_python"
+      ],
+      "note": "Absolute defaults for this machine (~/him-tools/{gmr-venv,mujoco-venv}). Override on another machine with `him pipeline run ... --set gmr_python=/path/to/venv/bin/python --set mujoco_python=/path/to/venv/bin/python`."
+    },
     "setup": "scripts/fetch_assets.sh for the G1 model; data/rokoko-motion-capture from rokoko-fbx.tar; gmr_python = a venv with github.com/YanjieZe/GMR installed (pip install -e), mujoco_python = a venv with mujoco+imageio."
   }
 }
