@@ -163,6 +163,9 @@ The four ~300 s sessions (220452/221043/221654/222546 vs Clip_5…8) are ambiguo
 
 ## 7. Pipeline & prior art
 
+**Open-source survey (2026-08-27, every repo fetched and verified): `docs/research/humanoid-table-tennis-survey.md`.** Headlines: HITTER (Berkeley) and SMASH (HKU, ego-camera only) ship no code; the only open, trainable, table-tennis-specific humanoid RL codebase is Purdue PACE (MIT, Booster T1, Isaac Sim 4.5 / Isaac Lab 2.1); `hitchopen/HOPE` (Apache-2.0) is the platform the 2026 World Humanoid Robot Games table-tennis event ran on (Agibot A3, ships a checkpoint + train→ONNX→MuJoCo-check→C++ deploy pipeline, G1 docs-only); BeyondMimic (`HybridRobotics/whole_body_tracking`, MIT) is the WBC foundation under HITTER/HOPE. Recommended build order: PACE env/predictor + HOPE pipeline pattern + BeyondMimic WBC/deploy. Booster's own RL scaffolding repos are NOASSERTION-licensed.
+
+
 Pipeline: `perception(ball) + movement(swings) → control(imitate + RL in sim) → him_adapter package → arena submit`.
 
 Reference approaches (both: **model-based ball prediction → RL whole-body controller**):
