@@ -39,9 +39,9 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 HOME = Path.home()
-DEFAULT_IMU = HOME / "him-data/him-table-tennis-paddle-imu-20260815"
-DEFAULT_ORBBEC = [HOME / "him-data/orbbec_20260815_214619", HOME / "him-data/orbbec_20260815_215350"]
-DEFAULT_FBX = HOME / "him-data/rokoko-motion-capture"
+DEFAULT_IMU = REPO / "data/him-table-tennis-paddle-imu-20260815"
+DEFAULT_ORBBEC = [REPO / "data/orbbec_20260815_214619", REPO / "data/orbbec_20260815_215350"]
+DEFAULT_FBX = REPO / "data/rokoko-motion-capture"
 DEFAULT_BVH = REPO / "work/bvh"
 FBX_KTIME_PER_S = 46186158000  # FBX SDK time unit (KTime ticks per second)
 # FBX SDK FbxTime::EMode enum values -> frames per second (eCustom = 14 reads GlobalSettings CustomFrameRate).
@@ -494,7 +494,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--imu-dir", type=Path, default=DEFAULT_IMU)
     ap.add_argument("--orbbec-dir", type=Path, nargs="*", default=DEFAULT_ORBBEC)
-    ap.add_argument("--orbbec-tars", type=Path, nargs="*", default=sorted((HOME / "Downloads").glob("orbbec_*.tar")),
+    ap.add_argument("--orbbec-tars", type=Path, nargs="*", default=sorted((REPO / "data/release").glob("orbbec_*.tar")),
                     help="tar files whose names give the launch wall clock of sessions not extracted (0-byte failed downloads)")
     ap.add_argument("--fbx-dir", type=Path, default=DEFAULT_FBX)
     ap.add_argument("--bvh-dir", type=Path, default=DEFAULT_BVH)
