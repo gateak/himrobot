@@ -18,7 +18,7 @@ Usage (defaults match the local data layout):
   ... --orbbec-motion      # also build a frame-difference motion signal from the Orbbec color
                            # frames and cross-correlate it with the IMU (reads every JPG, ~1-2 min)
   ... --bvh-dir DIR         # Blender BVH exports of the Rokoko clips (Clip*.bvh, *_nofingers.bvh skipped);
-                           # default ~/src/him-table-tennis-training/work/bvh
+                           # default work/bvh (repo)
 
 Outputs (under --out): session-map.json, fbx-headers.json, imu-mocap-xcorr.csv,
 imu-orbbec-clock.json, xcorr_<episode>_<clip>.png, xcorr-matrix.png.
@@ -37,11 +37,12 @@ from pathlib import Path
 
 import numpy as np
 
+REPO = pathlib.Path(__file__).resolve().parents[1]
 HOME = Path.home()
 DEFAULT_IMU = HOME / "him-data/him-table-tennis-paddle-imu-20260815"
 DEFAULT_ORBBEC = [HOME / "him-data/orbbec_20260815_214619", HOME / "him-data/orbbec_20260815_215350"]
 DEFAULT_FBX = HOME / "him-data/rokoko-motion-capture"
-DEFAULT_BVH = HOME / "src/him-table-tennis-training/work/bvh"
+DEFAULT_BVH = REPO / "work/bvh"
 FBX_KTIME_PER_S = 46186158000  # FBX SDK time unit (KTime ticks per second)
 # FBX SDK FbxTime::EMode enum values -> frames per second (eCustom = 14 reads GlobalSettings CustomFrameRate).
 FBX_TIME_MODES = {1: 120.0, 2: 100.0, 3: 60.0, 4: 50.0, 5: 48.0, 6: 30.0, 7: 30.0, 8: 29.97, 9: 29.97, 10: 25.0,

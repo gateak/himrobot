@@ -87,7 +87,7 @@ joints in Menagerie/Unitree-SDK order (`extensions.robot.joint_order`).
 
 ## Not in this repo (gitignored)
 
-- `data/` — HIM's proprietary licensed capture (paddle IMU + Orbbec RGB-D + Rokoko mocap). Not redistributed.
+- `data/` — HIM's proprietary licensed capture (paddle IMU + Orbbec RGB-D + Rokoko mocap + the verified release tars), kept as real files inside the repo folder. Not redistributed.
 - `third_party/` — vendored Booster assets; re-fetch with `scripts/fetch_assets.sh`.
 - `models/`, `*.pt`, `sim/*.gif` — generated artifacts.
 
