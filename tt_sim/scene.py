@@ -1,0 +1,481 @@
+"""G1-vs-table-tennis-ball MuJoCo scene: model construction + gym-ish env.
+
+Builds the scene by editing the vendored Menagerie G1 XML **in memory**
+(string surgery, same technique as sim/g1_model.py's paddle injection —
+duplicated here rather than imported so this package has no runtime
+dependency on sim/, which other agents are concurrently editing):
+
+  1. the pelvis `<freejoint>` is dropped and the pelvis body is repositioned,
+     turning the free-floating G1 into a fixed-base manipulator (legs still
+     have their own hinge joints and actuators; they just can't fall over —
+     the robot doesn't need to balance to play table tennis from a fixed
+     stance) so it can't fall;
+  2. a paddle is welded onto the right wrist (right-handed);
+  3. an ITTF table + net + floor + a free-joint ball are added, with
+     contact solver params tuned for ~0.9 ball/table restitution.
+
+Table geometry (ITTF, cited in the constants below): 2.74 m x 1.525 m,
+playing surface at 0.76 m, net 15.25 cm tall spanning the width. The table
+is centred at the world origin with x running along the 2.74 m length and
+y along the 1.525 m width; the robot stands at the x<0 end, facing +x.
+"""
+from __future__ import annotations
+
+import math
+import os
+
+import mujoco
+import numpy as np
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+G1_XML = os.path.join(REPO, "third_party/mujoco_menagerie/unitree_g1/g1.xml")
+MESHDIR = os.path.join(REPO, "third_party/mujoco_menagerie/unitree_g1/assets")
+
+# ---------------------------------------------------------------------------
+# Table-tennis facts (ITTF regulation dimensions, as given to this task).
+# ---------------------------------------------------------------------------
+TABLE_LENGTH = 2.74
+TABLE_WIDTH = 1.525
+TABLE_HALF_LENGTH = TABLE_LENGTH / 2.0  # 1.37, table spans x in [-1.37, 1.37]
+TABLE_HALF_WIDTH = TABLE_WIDTH / 2.0  # 0.7625, table spans y in [-0.7625, 0.7625]
+TABLE_TOP_Z = 0.76  # playing-surface height above the floor
+TABLE_THICKNESS = 0.02  # assumption: slab visual/collision thickness (not an ITTF fact)
+NET_HEIGHT = 0.1525  # above the playing surface, spans the full width
+NET_TOP_Z = TABLE_TOP_Z + NET_HEIGHT
+
+BALL_DIAMETER = 0.040
+BALL_RADIUS = BALL_DIAMETER / 2.0
+BALL_MASS = 0.0027
+
+# Assumption: ball/table coefficient of restitution ~= 0.9 (ITTF fact given).
+# MuJoCo has no literal restitution parameter; we approximate it by tuning
+# the normal-contact solver reference (solref = [timeconst, dampratio],
+# underdamped so the contact spring rebounds) against an explicit drop-test
+# calibration: dropping the ball from 0.3 m onto table_top, impact speed is
+# 2.335 m/s (free fall, independent of solref) and with these values rebound
+# speed is 2.102 m/s -> e = 0.90 (scratch calibration script, not shipped —
+# numbers in the task report). A stiffer/quicker pair (timeconst=0.008 s,
+# dampratio=0.16) also hits e=0.90 in that same vertical drop and was the
+# first local optimum found, but it turned out to be on a knife-edge: still
+# numerically stable, but the *slightest* further increase in bounciness
+# (e.g. dampratio 0.158) diverges. timeconst=0.05 s trades a slightly
+# softer/slower contact for a wide, well-behaved stable region, confirmed
+# under oblique/spinning impacts (6 m/s lateral + 40 rad/s spin: bounded
+# ~8 m/s peak speed, no blow-up, energy decays over repeated bounces).
+# solimp is a near-rigid impedance so the ball doesn't sink into the table.
+BOUNCE_SOLREF = "0.05 0.048"
+BOUNCE_SOLIMP = "0.9 0.95 0.001 0.5 2"
+CONTACT_FRICTION = "0.4 0.005 0.0001"  # sliding/torsional/rolling — rubber-ish default
+
+# Robot standing pose: pelvis ~0.4 m behind the robot's own end line
+# (x = -TABLE_HALF_LENGTH), facing +x (identity pelvis orientation already
+# points local +x = the G1's forward/toe direction — confirmed from the
+# vendor XML's foot-collision-sphere offsets — at world +x, so no rotation
+# is needed to face the table).
+ROBOT_STANDBACK_M = 0.4
+ROBOT_X = -(TABLE_HALF_LENGTH + ROBOT_STANDBACK_M)  # -1.77
+ROBOT_Z = 0.793  # unchanged from the vendor pelvis pos / "stand" keyframe height
+
+# Joint order = .him/contracts/runtime.json extensions.robot.joint_order,
+# which is also the vendored G1 XML's actuator declaration order.
+JOINT_ORDER = [
+    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
+    "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
+    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
+    "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
+    "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
+    "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
+    "left_elbow_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint", "left_wrist_yaw_joint",
+    "right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
+    "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
+]
+NUM_JOINTS = len(JOINT_ORDER)  # 29
+
+# Default "ready" pose: the vendor G1 XML's own "stand" keyframe `ctrl`
+# array (29 values, already in JOINT_ORDER) — arms relaxed, elbows bent.
+# We can't keep the XML <keyframe> itself (its `qpos` was 7 free-joint
+# values + 29 joint values; with the free joint removed the lengths
+# coincidentally still add up to 36 [29 robot + 7 ball], which would
+# silently misassign values), so it's dropped from the XML and this array
+# is used directly instead.
+STAND_POSE = np.array([
+    0, 0, 0, 0, 0, 0,        # left leg
+    0, 0, 0, 0, 0, 0,        # right leg
+    0, 0, 0,                 # waist
+    0.2, 0.2, 0, 1.28, 0, 0, 0,   # left arm
+    0.2, -0.2, 0, 1.28, 0, 0, 0,  # right arm
+], dtype=np.float64)
+
+# Paddle geometry: identical to sim/g1_model.py's PADDLE_XML (same welded
+# 0.17 kg disc on the right wrist), except paddle_blade keeps real collision
+# (contype/conaffinity default = 1) instead of being visual-only, since it
+# has to actually hit the ball.
+PADDLE_XML = """
+        <body name="paddle" pos="0.085 0 0">
+          <inertial pos="0.06 0 0" mass="0.17" diaginertia="0.0004 0.0004 0.0004"/>
+          <geom name="paddle_handle" type="capsule" fromto="0 0 0 0.06 0 0" size="0.012" rgba="0.35 0.22 0.12 1" contype="0" conaffinity="0"/>
+          <geom name="paddle_blade" type="cylinder" pos="0.12 0 0" zaxis="0 1 0" size="0.085 0.006" rgba="0.85 0.12 0.12 1" friction="{friction}"/>
+        </body>
+""".format(friction=CONTACT_FRICTION)
+_PADDLE_MARKER = 'mesh="right_rubber_hand"/>'  # last geom inside right_wrist_yaw_link
+
+_SCENE_XML = """
+    <geom name="table_top" type="box" pos="0 0 {table_z}" size="{half_len} {half_wid} {half_thick}"
+          rgba="0.05 0.30 0.55 1" friction="{friction}"/>
+    <geom name="tt_centerline" type="box" pos="0 0 {line_z}" size="{half_len} 0.01 0.0005"
+          rgba="1 1 1 1" contype="0" conaffinity="0"/>
+    <geom name="net" type="box" pos="0 0 {net_z}" size="0.01 {half_wid} {net_half_h}"
+          rgba="0.9 0.9 0.9 0.5" friction="0.2 0.005 0.0001"/>
+    <geom name="floor" type="plane" pos="0 0 0" size="0 0 0.05" rgba="0.25 0.30 0.35 1" friction="0.6 0.005 0.0001"/>
+    <body name="ball" pos="0.6 0 1.2">
+      <freejoint name="ball_joint"/>
+      <geom name="ball" type="sphere" size="{ball_r}" mass="{ball_mass}" rgba="1 0.55 0.05 1"
+            friction="{friction}"/>
+    </body>
+""".format(
+    table_z=TABLE_TOP_Z - TABLE_THICKNESS / 2.0,
+    half_len=TABLE_HALF_LENGTH, half_wid=TABLE_HALF_WIDTH, half_thick=TABLE_THICKNESS / 2.0,
+    line_z=TABLE_TOP_Z + 0.0006,
+    net_z=TABLE_TOP_Z + NET_HEIGHT / 2.0, net_half_h=NET_HEIGHT / 2.0,
+    ball_r=BALL_RADIUS, ball_mass=BALL_MASS,
+    friction=CONTACT_FRICTION,
+)
+
+def _contact_xml(paddle: bool) -> str:
+    pairs = f'    <pair geom1="ball" geom2="table_top" solref="{BOUNCE_SOLREF}" solimp="{BOUNCE_SOLIMP}"/>\n'
+    if paddle:
+        pairs += f'    <pair geom1="ball" geom2="paddle_blade" solref="{BOUNCE_SOLREF}" solimp="{BOUNCE_SOLIMP}"/>\n'
+    return f"\n  <contact>\n{pairs}  </contact>\n"
+
+
+def _build_xml(fixed_base: bool, paddle: bool) -> str:
+    with open(G1_XML) as fh:
+        text = fh.read()
+    text = text.replace('meshdir="assets"', f'meshdir="{MESHDIR}"')
+    text = text.replace(
+        '<option integrator="implicitfast"/>',
+        '<option integrator="implicitfast" timestep="0.002" gravity="0 0 -9.81"/>',
+        1,
+    )
+
+    if fixed_base:
+        if '<freejoint name="floating_base_joint"/>' not in text:
+            raise RuntimeError("pelvis freejoint not found; vendored G1 XML changed?")
+        text = text.replace('<freejoint name="floating_base_joint"/>', "", 1)
+        text = text.replace(
+            '<body name="pelvis" pos="0 0 0.793" childclass="g1">',
+            f'<body name="pelvis" pos="{ROBOT_X} 0 {ROBOT_Z}" childclass="g1">',
+            1,
+        )
+
+    if paddle:
+        if _PADDLE_MARKER not in text:
+            raise RuntimeError("paddle-injection marker not found; vendored G1 XML changed?")
+        text = text.replace(_PADDLE_MARKER, _PADDLE_MARKER + "\n" + PADDLE_XML, 1)
+
+    # Drop the vendor <keyframe> (see STAND_POSE docstring for why it can't
+    # be reused post-edit — its qpos length no longer matches nq once the
+    # pelvis freejoint is gone and the ball's freejoint is added) and add
+    # our table/net/floor/ball + contact pairs in its place, before </mujoco>.
+    kf_start = text.find("<keyframe>")
+    kf_end = text.find("</keyframe>")
+    if kf_start < 0 or kf_end < 0:
+        raise RuntimeError("vendored G1 keyframe not found; XML changed?")
+    text = text[:kf_start] + text[kf_end + len("</keyframe>"):]
+    text = text.replace("</worldbody>", _SCENE_XML + "  </worldbody>", 1)
+    text = text.replace("</mujoco>", _contact_xml(paddle) + "</mujoco>", 1)
+    return text
+
+
+def build_model(fixed_base: bool = True, paddle: bool = True) -> mujoco.MjModel:
+    """Build the G1 + paddle + table + ball MuJoCo model.
+
+    fixed_base=True (default) welds the pelvis in the standing pose above
+    (required for TableTennisEnv — see module docstring); fixed_base=False
+    keeps the vendor free-floating pelvis, for callers that want the
+    unmodified G1 dynamics with the table-tennis scene grafted on.
+    """
+    return mujoco.MjModel.from_xml_string(_build_xml(fixed_base, paddle))
+
+
+# ---------------------------------------------------------------------------
+# Table targets: (zone, depth) -> explicit (x, y) point on the opponent's
+# half (x > 0). depth is distance from the net (x), zone is lateral
+# position (y). The robot hits with its right hand from the y<0 side, so
+# "line" (down-the-line, same side) is y<0 and "crosscourt" (the long
+# diagonal, the default/easiest shot) is y>0.
+# ---------------------------------------------------------------------------
+_TARGET_DEPTH_X = {"short": 0.35, "mid": 0.75, "deep": 1.15}
+_TARGET_ZONE_Y = {"line": -0.55, "center": 0.0, "crosscourt": 0.55}
+
+DEFAULT_PARAMS = {
+    "target_zone": "crosscourt",
+    "target_depth": "deep",
+    "risk_preference": 0.45,
+}
+
+
+def target_point(target_zone: str = "crosscourt", target_depth: str = "deep") -> tuple[float, float]:
+    """(x, y) landing point on the opponent's half for a target_zone/target_depth pair."""
+    return (_TARGET_DEPTH_X[target_depth], _TARGET_ZONE_Y[target_zone])
+
+
+def landing_error_m(events: dict, target) -> float:
+    """Euclidean distance (m) from events['landing_point'] to a target.
+
+    ``target`` is either a (target_zone, target_depth) string pair (see
+    target_point) or an already-resolved (x, y) point. Returns nan if
+    events has no recorded landing_point.
+    """
+    landing = events.get("landing_point")
+    if landing is None:
+        return float("nan")
+    if isinstance(target[0], str):
+        tx, ty = target_point(*target)
+    else:
+        tx, ty = target
+    lx, ly = landing
+    return math.hypot(lx - tx, ly - ty)
+
+
+def legal_return(events: dict) -> bool:
+    """True iff the robot's paddle hit the ball, it then crossed the net
+    plane above net height heading toward the opponent, and (the first
+    such crossing after the hit) landed on the opponent's half.
+
+    ``events`` is the flat per-episode dict TableTennisEnv accumulates
+    (see TableTennisEnv docstring); crossed_net is only ever set True by
+    the env for an outgoing (robot-side -> opponent-side) crossing that
+    happens after contact_paddle is already True, so this reduces to the
+    3-flag check below. See TableTennisEnv._update_events for exactly how
+    each flag is set.
+    """
+    return bool(events.get("contact_paddle")) and bool(events.get("crossed_net")) and bool(
+        events.get("bounce_opponent_side")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Serve sampling
+# ---------------------------------------------------------------------------
+# Ranges (documented for the eval report): launched from the opponent's
+# half toward the robot's forehand (right = -y, see module docstring) zone.
+SERVE_X0_RANGE = (1.00, 1.30)      # opponent-side launch x
+SERVE_Y0_RANGE = (-0.20, 0.20)     # opponent-side launch y (near centre)
+SERVE_Z0_HEIGHT_RANGE = (0.05, 0.25)  # launch height above the table (toss height)
+SERVE_FLIGHT_TIME_RANGE = (0.45, 0.75)  # s, controls effective speed
+SERVE_TARGET_X_RANGE = (-1.05, -0.25)  # robot-side arrival x (depth)
+SERVE_TARGET_Y_RANGE = (-0.65, -0.10)  # robot-side arrival y (forehand/right, lateral)
+
+
+def sample_serve(rng: np.random.Generator, params: dict | None = None) -> dict:
+    """Sample a serve: a straight ballistic (no aerodynamic drag/Magnus)
+    trajectory solved to land at a randomized point in the robot's forehand
+    zone at a randomized flight time, launched from a randomized point/height
+    on the opponent's half. Returns {"pos": (3,), "vel": (3,), "spin": None}.
+
+    Spin is not modelled aerodynamically in this pass (no Magnus force in
+    plain MuJoCo without a custom force callback), so it is always None —
+    documented simplification, not a missing feature of the ball body
+    itself (which does have full 6-dof free-joint dynamics and would spin
+    correctly on contact regardless).
+    """
+    del params  # accepted for interface compatibility; ranges above are fixed for now.
+    g = 9.81
+    x0 = rng.uniform(*SERVE_X0_RANGE)
+    y0 = rng.uniform(*SERVE_Y0_RANGE)
+    z0 = TABLE_TOP_Z + rng.uniform(*SERVE_Z0_HEIGHT_RANGE)
+    t = rng.uniform(*SERVE_FLIGHT_TIME_RANGE)
+    xt = rng.uniform(*SERVE_TARGET_X_RANGE)
+    yt = rng.uniform(*SERVE_TARGET_Y_RANGE)
+    zt = TABLE_TOP_Z + BALL_RADIUS  # arrives just touching the table (the serve bounce)
+
+    vx = (xt - x0) / t
+    vy = (yt - y0) / t
+    vz = (zt - z0 + 0.5 * g * t * t) / t
+
+    return {"pos": np.array([x0, y0, z0]), "vel": np.array([vx, vy, vz]), "spin": None}
+
+
+# ---------------------------------------------------------------------------
+# Env
+# ---------------------------------------------------------------------------
+CONTROL_HZ = 50
+SIM_DT = 0.002
+DECIMATION = 10  # 0.002 * 10 = 0.02 s = 1 / 50 Hz
+
+
+def _empty_events() -> dict:
+    return {
+        "contact_paddle": False,
+        "bounce_own_side": False,
+        "bounce_opponent_side": False,
+        "net_hit": False,
+        "out": False,
+        "crossed_net": False,
+        "landing_point": None,
+        # Extra (not in the minimum contract, additive): ms from serve to
+        # the paddle first moving > 2 cm from its reset pose, or None.
+        "reaction_latency_ms": None,
+    }
+
+
+class TableTennisEnv:
+    """Fixed-base G1 + paddle vs. a served ball. See module docstring for
+    the table/robot layout and tt_sim.policies for the Policy interface
+    this is meant to be driven by.
+    """
+
+    def __init__(self, seed: int, params: dict | None = None):
+        self.params = {**DEFAULT_PARAMS, **(params or {})}
+        self._rng = np.random.default_rng(seed)
+        self.model = build_model(fixed_base=True, paddle=True)
+        self.data = mujoco.MjData(self.model)
+        self.control_hz = CONTROL_HZ
+        self.decimation = DECIMATION
+        assert abs(self.model.opt.timestep - SIM_DT) < 1e-9
+
+        self._joint_qpos_adr = np.array(
+            [self.model.jnt_qposadr[self._jid(n)] for n in JOINT_ORDER]
+        )
+        self._joint_dof_adr = np.array(
+            [self.model.jnt_dofadr[self._jid(n)] for n in JOINT_ORDER]
+        )
+        self._actuator_ids = np.array(
+            [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, n) for n in JOINT_ORDER]
+        )
+        assert np.all(self._actuator_ids >= 0)
+
+        ball_jid = self._jid("ball_joint")
+        self._ball_qpos_adr = self.model.jnt_qposadr[ball_jid]  # start of 7 (pos3+quat4)
+        self._ball_dof_adr = self.model.jnt_dofadr[ball_jid]  # start of 6 (lin3+ang3)
+
+        self._paddle_body_id = self._body("paddle")
+        self._ball_geom_id = self._geom("ball")
+        self._table_geom_id = self._geom("table_top")
+        self._net_geom_id = self._geom("net")
+        self._paddle_geom_id = self._geom("paddle_blade")
+        self._floor_geom_id = self._geom("floor")
+
+        self._events: dict = _empty_events()
+        self._paddle_reset_pos: np.ndarray | None = None
+        self._prev_ball_x: float | None = None
+        self._prev_touching_table = False
+        self._elapsed_s = 0.0
+
+    def _jid(self, name: str) -> int:
+        j = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
+        assert j >= 0, name
+        return j
+
+    def _body(self, name: str) -> int:
+        b = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, name)
+        assert b >= 0, name
+        return b
+
+    def _geom(self, name: str) -> int:
+        g = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, name)
+        assert g >= 0, name
+        return g
+
+    def reset(self, serve: dict | None = None) -> dict:
+        mujoco.mj_resetData(self.model, self.data)
+        self.data.qpos[self._joint_qpos_adr] = STAND_POSE
+        self.data.ctrl[self._actuator_ids] = STAND_POSE
+
+        if serve is None:
+            serve = sample_serve(self._rng, self.params)
+        pos = np.asarray(serve["pos"], dtype=np.float64)
+        vel = np.asarray(serve["vel"], dtype=np.float64)
+        spin = serve.get("spin")
+
+        self.data.qpos[self._ball_qpos_adr:self._ball_qpos_adr + 3] = pos
+        self.data.qpos[self._ball_qpos_adr + 3:self._ball_qpos_adr + 7] = [1.0, 0.0, 0.0, 0.0]
+        self.data.qvel[self._ball_dof_adr:self._ball_dof_adr + 3] = vel
+        if spin is not None:
+            self.data.qvel[self._ball_dof_adr + 3:self._ball_dof_adr + 6] = spin
+
+        mujoco.mj_forward(self.model, self.data)
+
+        self._events = _empty_events()
+        self._paddle_reset_pos = self.data.xpos[self._paddle_body_id].copy()
+        self._prev_ball_x = float(self.data.qpos[self._ball_qpos_adr])
+        self._prev_touching_table = False
+        self._elapsed_s = 0.0
+
+        return self._get_obs()
+
+    def step(self, action: np.ndarray):
+        action = np.asarray(action, dtype=np.float64)
+        assert action.shape == (NUM_JOINTS,), action.shape
+        self.data.ctrl[self._actuator_ids] = action
+
+        for _ in range(self.decimation):
+            mujoco.mj_step(self.model, self.data)
+            self._elapsed_s += SIM_DT
+            self._update_events()
+
+        return self._get_obs(), dict(self._events)
+
+    def _get_obs(self) -> dict:
+        d = self.data
+        return {
+            "robot.joint_position": d.qpos[self._joint_qpos_adr].copy(),
+            "robot.joint_velocity": d.qvel[self._joint_dof_adr].copy(),
+            "ball.position": d.qpos[self._ball_qpos_adr:self._ball_qpos_adr + 3].copy(),
+            "ball.velocity": d.qvel[self._ball_dof_adr:self._ball_dof_adr + 3].copy(),
+            "paddle.position": d.xpos[self._paddle_body_id].copy(),
+            "paddle.quaternion": d.xquat[self._paddle_body_id].copy(),
+            "time_s": self._elapsed_s,
+        }
+
+    def _update_events(self) -> None:
+        d = self.data
+        ev = self._events
+
+        # Reaction latency: first time the paddle has moved > 2 cm from its
+        # reset pose.
+        if ev["reaction_latency_ms"] is None:
+            moved = np.linalg.norm(d.xpos[self._paddle_body_id] - self._paddle_reset_pos)
+            if moved > 0.02:
+                ev["reaction_latency_ms"] = self._elapsed_s * 1000.0
+
+        # Contact classification for this substep.
+        touching_table = False
+        for i in range(d.ncon):
+            c = d.contact[i]
+            g1, g2 = c.geom1, c.geom2
+            pair = {g1, g2}
+            if self._ball_geom_id not in pair:
+                continue
+            other = g2 if g1 == self._ball_geom_id else g1
+            if other == self._paddle_geom_id:
+                ev["contact_paddle"] = True
+            elif other == self._net_geom_id:
+                ev["net_hit"] = True
+            elif other == self._floor_geom_id:
+                ev["out"] = True
+            elif other == self._table_geom_id:
+                touching_table = True
+
+        ball_x = float(d.qpos[self._ball_qpos_adr])
+        ball_y = float(d.qpos[self._ball_qpos_adr + 1])
+
+        # Table bounce: rising edge of "touching table_top".
+        if touching_table and not self._prev_touching_table:
+            if ball_x < 0:
+                ev["bounce_own_side"] = True
+            else:
+                ev["bounce_opponent_side"] = True
+            ev["landing_point"] = (ball_x, ball_y)
+        self._prev_touching_table = touching_table
+
+        # crossed_net: outgoing (robot -> opponent) crossing of x=0 while
+        # above net height, only counted once a paddle hit has occurred
+        # (see legal_return docstring).
+        if ev["contact_paddle"] and self._prev_ball_x is not None:
+            if self._prev_ball_x < 0.0 <= ball_x:
+                ball_z = float(d.qpos[self._ball_qpos_adr + 2])
+                if ball_z - BALL_RADIUS > NET_TOP_Z:
+                    ev["crossed_net"] = True
+        self._prev_ball_x = ball_x

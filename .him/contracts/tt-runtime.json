@@ -1,0 +1,184 @@
+{
+  "schema_version": "1.0.0",
+  "interface_id": "himrobot-g1-table-tennis-v1",
+  "description": "Table-tennis evaluation runtime interface for the Unitree G1 (29 DoF, fixed pelvis) vs. a served ball, implemented by tt_sim.scene.TableTennisEnv / tt_sim.evaluate.",
+  "transport": "in_process",
+  "stateful": true,
+  "lifecycle": {
+    "health": "health",
+    "metadata": "metadata",
+    "reset": "reset",
+    "infer": "infer",
+    "close": "close"
+  },
+  "observations": [
+    {
+      "name": "robot.joint_position",
+      "dtype": "float32",
+      "shape": [29],
+      "unit": "rad",
+      "coordinate_frame": "robot",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Current joint positions, ordered per extensions.robot.joint_order."
+    },
+    {
+      "name": "robot.joint_velocity",
+      "dtype": "float32",
+      "shape": [29],
+      "unit": "rad/s",
+      "coordinate_frame": "robot",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Current joint velocities, ordered per extensions.robot.joint_order."
+    },
+    {
+      "name": "ball.position",
+      "dtype": "float32",
+      "shape": [3],
+      "unit": "m",
+      "coordinate_frame": "world",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Ball centre-of-mass position (x, y, z) in the table-centred world frame: origin at table centre, x along the 2.74 m length (robot at x<0), y along the 1.525 m width, z up from the floor (table top at z=0.76 m)."
+    },
+    {
+      "name": "ball.velocity",
+      "dtype": "float32",
+      "shape": [3],
+      "unit": "m/s",
+      "coordinate_frame": "world",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Ball linear velocity (vx, vy, vz) in the same world frame as ball.position."
+    },
+    {
+      "name": "paddle.position",
+      "dtype": "float32",
+      "shape": [3],
+      "unit": "m",
+      "coordinate_frame": "world",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "World position of the paddle body (welded to right_wrist_yaw_link)."
+    },
+    {
+      "name": "paddle.quaternion",
+      "dtype": "float32",
+      "shape": [4],
+      "unit": null,
+      "coordinate_frame": "world",
+      "encoding": "wxyz",
+      "clock_domain": "control",
+      "time_semantics": "sample_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "World orientation of the paddle body as a unit quaternion, MuJoCo (w, x, y, z) convention."
+    }
+  ],
+  "actions": [
+    {
+      "name": "robot.desired_joint_position",
+      "dtype": "float32",
+      "shape": [29],
+      "unit": "rad",
+      "coordinate_frame": "robot",
+      "encoding": null,
+      "clock_domain": "control",
+      "time_semantics": "command_time",
+      "optional": false,
+      "normalization_ref": null,
+      "description": "Desired joint positions for the vendor G1 position actuators (kp=500, dampratio=1), ordered per extensions.robot.joint_order."
+    }
+  ],
+  "auxiliary_outputs": [],
+  "clock_domains": [
+    {
+      "id": "control",
+      "trigger": "fixed_rate",
+      "rate_hz": 50,
+      "deadline_ms": 20,
+      "hard_realtime": false,
+      "placement": "same_process"
+    }
+  ],
+  "batching": {
+    "supported": false,
+    "max_batch_size": 1,
+    "max_wait_ms": 0
+  },
+  "error_model": {
+    "retryable_codes": [],
+    "terminal_codes": [
+      "INVALID_OBSERVATION"
+    ],
+    "fallback_action": "hold"
+  },
+  "extensions": {
+    "template": false,
+    "robot": {
+      "model": "unitree-g1-29dof",
+      "source": "third_party/mujoco_menagerie/unitree_g1/g1.xml",
+      "source_repo": "https://github.com/google-deepmind/mujoco_menagerie",
+      "license": "BSD-3-Clause",
+      "dof": 29,
+      "joint_order": [
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "left_wrist_pitch_joint",
+        "left_wrist_yaw_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+        "right_wrist_pitch_joint",
+        "right_wrist_yaw_joint"
+      ],
+      "notes": "Fixed-base variant of .him/contracts/runtime.json: identical joint_order/model/source, but the pelvis freejoint is removed (see tt_sim/scene.py module docstring) and this contract adds the ball/paddle observation signals tt_sim.scene.TableTennisEnv exposes for the table-tennis evaluation task. stateful=true (unlike runtime.json) because TableTennisEnv carries per-episode contact/event state across steps. UNCONFIRMED against HIM's server-side evaluator, same caveat as runtime.json: reconcile signal names/rate/joint order with HIM's actual G1 table-tennis fixture before relying on this for a real submission."
+    },
+    "scene": {
+      "table_length_m": 2.74,
+      "table_width_m": 1.525,
+      "table_top_z_m": 0.76,
+      "net_height_m": 0.1525,
+      "ball_diameter_m": 0.04,
+      "ball_mass_kg": 0.0027,
+      "assumed_restitution": 0.9,
+      "note": "ITTF facts as given for this task; assumed_restitution is this repo's calibrated MuJoCo contact-solver assumption, not a MuJoCo-native parameter (see tt_sim/scene.py BOUNCE_SOLREF/BOUNCE_SOLIMP comments)."
+    }
+  }
+}

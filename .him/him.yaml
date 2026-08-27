@@ -40,10 +40,34 @@ entrypoints:
     network_policy: none
     secret_refs: []
     timeout_seconds: 600
+  - id: evaluate
+    purpose: evaluation
+    execution_mode: python
+    command:
+      - python
+      - -m
+      - tt_sim.evaluate
+      - --policy
+      - ik_hitter
+      - --trials
+      - "10"
+      - --video
+    working_directory: .
+    image_ref: null
+    image_digest: null
+    runtime_interface_ref: .him/contracts/tt-runtime.json
+    process_graph_ref: null
+    training_pipeline_ref: null
+    endpoint_profile_ref: null
+    resource_class: cpu-standard
+    network_policy: none
+    secret_refs: []
+    timeout_seconds: 1800
 artifacts: []
 contracts:
   runtime_interfaces:
     - .him/contracts/runtime.json
+    - .him/contracts/tt-runtime.json
   process_graphs: []
   training_pipelines:
     - contracts/training-pipeline.json
@@ -88,6 +112,19 @@ tests:
     required_for:
       - push
     timeout_seconds: 120
+    fixture_ref: null
+  - id: tt-sim
+    type: simulation
+    command:
+      - python
+      - -m
+      - pytest
+      - -q
+      - tt_sim/tests
+    required_for:
+      - push
+      - arena
+    timeout_seconds: 300
     fixture_ref: null
 compatibility:
   robots: []
