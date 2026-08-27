@@ -1,0 +1,1194 @@
+<!-- Source: https://arena.himrobotics.com/docs/llms-full.txt — fetched 2026-08-27 with the CLI token (private preview). All in-product HIM docs. -->
+# HIM Compute and HIM Arena
+
+> HIM runs private robotics inference, simulation, evaluation, and training jobs. Arena lets builders submit a policy to a shared challenge and publish a verified score.
+
+Add a .him directory to your existing repository to declare how HIM runs your code and collects its outputs. Keep native commands and project structure. Published scores come only from the evaluator declared by the challenge.
+
+Install the CLI with `curl -fsSL https://arena.himrobotics.com/install.sh | sh` before running HIM commands.
+
+## Start
+- [HIM in one page](https://arena.himrobotics.com/docs/overview/raw): Build your way. Earn a shot on the real G1.
+- [Quickstart](https://arena.himrobotics.com/docs/quickstart/raw): Download the data, launch a machine, and share what you build.
+- [Use an SSH machine](https://arena.himrobotics.com/docs/ssh-machine/raw): Generate a key, connect safely, and start building with an agent.
+- [HIM Compute](https://arena.himrobotics.com/docs/compute/raw): Launch a flexible SSH machine. Use guided jobs when you need tighter controls.
+
+## Learn
+- [Robotics training, without the fog](https://arena.himrobotics.com/docs/robotics-training/raw): How inference, simulation, evaluation, training, and sim-to-real fit together.
+- [From private job to Arena](https://arena.himrobotics.com/docs/arena/raw): How comparison, evaluator trust, lineage, and the public learning loop work.
+
+## Workflows
+- [MuJoCo and MJX workflow](https://arena.himrobotics.com/docs/mujoco-mjx/raw): Package, run, evaluate, and compare a MuJoCo-family robotics workflow.
+- [Isaac Sim and Isaac Lab workflow](https://arena.himrobotics.com/docs/isaac-sim/raw): Prepare a headless Isaac workload and verify its requirements before the first run.
+- [Booster and Unitree workflows](https://arena.himrobotics.com/docs/booster-unitree/raw): Connect Booster or Unitree through a versioned robot adapter.
+- [Build a community challenge](https://arena.himrobotics.com/docs/community-challenges/raw): Package your simulator and evaluator, share the test, and keep its trust clear.
+
+## Advanced
+- [Bring an existing robotics repository](https://arena.himrobotics.com/docs/him-package/raw): Use a .him overlay without replacing the repository, simulator, trainer, or agent.
+- [CLI and Compute API](https://arena.himrobotics.com/docs/cli-api/raw): Launch SSH machines and manage private guided jobs programmatically.
+- [Set up HIM with a coding agent](https://arena.himrobotics.com/docs/ai-handoff/raw): Give Codex, Claude Code, Cursor, or another agent the exact setup task.
+- [Trust, failures, and operations](https://arena.himrobotics.com/docs/trust-operations/raw): Understand evidence labels, permissions, retries, and what to inspect when a job fails.
+
+## Machine-readable sources
+- [Full in-product documentation](https://arena.himrobotics.com/docs/llms-full.txt)
+- [HIM Package guide](https://arena.himrobotics.com/docs/him-package/raw)
+- [CLI and API guide](https://arena.himrobotics.com/docs/cli-api/raw)
+
+
+---
+
+# HIM in one page
+
+> Build your way. Earn a shot on the real G1.
+
+Audience: Everyone
+Updated: 2026-08-20
+Page: /docs/overview
+
+## The builder loop
+
+HIM Arena's current challenge is table tennis: use HIM's released data, build with your existing tools, and publish a comparable result. The Robot Grant is a separate, broader program for promising sports-robotics policies, simulators, datasets, and tools.
+
+1. Build a policy, a simulator, or both together with any stack.
+2. Use your own data, or download the Rokoko motion and Orbbec RGB-D table-tennis sessions HIM collected.
+3. Use your own compute, launch a HIM SSH machine, or email team@himrobotics.com to request compute credits.
+4. Choose the robot, then upload the private project ZIP and the MP4 it produced to publish a shareable video page.
+
+> **A path to the real G1:** HIM reviews promising work across robot skills, simulators, and frameworks. Selected builders can receive compute and support, then enter compatibility and safety review for a supervised run on Adam, HIM's Unitree G1. Simulation success never guarantees hardware access.
+
+> **Ask HIM for support:** Email team@himrobotics.com to request compute credits, ask about available datasets, or get Robot Grant program information.
+
+## Simple first. Advanced when you need it.
+
+*Choose the smallest workflow that gets the job done.*
+
+| Goal | Start here | Advanced workflow |
+| --- | --- | --- |
+| Get training data | See release status and download available files from Datasets | Register a versioned private dataset with the CLI |
+| Get compute | Launch an SSH machine | Run a guided job with controlled inputs and outputs |
+| Share your work | Choose a challenge and drop one project ZIP on Build | Create a validated .him package for CI and reproducible execution |
+| Compare performance | Meet builders and explore their work | Submit an immutable policy to one exact versioned benchmark |
+
+> **.him is an advanced builder workflow:** You do not need .him to download data, launch an SSH machine, or share a browser upload. Use .him when you need repeatable guided jobs, immutable package versions, CI, exact artifacts, evaluator integration, or controlled scoring.
+
+## Start building
+
+- [Download the data](/datasets) — See HIM's real table-tennis capture and builder datasets.
+- [Launch an SSH machine](/compute) — Choose CPU or GPU and connect with your public key.
+- [Upload your work](/build#upload) — Share a policy, simulator, or both together in one ZIP.
+- [Advanced builder workflows](/docs/him-package) — Use .him, guided jobs, the CLI, APIs, and agents.
+
+
+---
+
+# Quickstart
+
+> Download the data, launch a machine, and share what you build.
+
+Audience: Builders
+Updated: 2026-08-17
+Page: /docs/quickstart
+
+## 1. Get the data
+
+HIM collected and released real table-tennis data. Open Datasets to download the Rokoko full-body motion, Orbbec RGB-D sessions, and WitMotion paddle IMU recordings.
+
+- [Open Datasets](/datasets) — HIM's data first, then datasets uploaded by builders.
+
+## 2. Launch an SSH machine
+
+1. Open Compute and choose CPU or GPU.
+2. Set the maximum lifetime and hard credit limit.
+3. Paste one ssh-ed25519 public key. Never paste a private key.
+4. When provisioning is available, launch the machine and copy the SSH command.
+5. Clone your repository and work with your normal tools.
+
+> **Robotics tools included:** The fast workspace includes Python, Git, build tools, MuJoCo, MJX, PyTorch, and JAX; GPU machines add CUDA. Isaac Sim and Isaac Lab remain a separate guided Compute path until their heavier image passes its own launch canary.
+
+- [Open Compute](/compute) — Launch the flexible SSH workspace.
+
+## 3. Build your way
+
+Use your existing repository, simulator, trainer, coding agent, and experiment tracker. HIM does not require one canonical simulator or training framework.
+
+> **No .him setup required:** You do not need a .him directory for the default builder loop. Add it later only if you want guided jobs, immutable packages, CI validation, exact artifact capture, or benchmark submission.
+
+## 4. Share what you built
+
+1. Choose Unitree G1, Booster K1, or Booster T1.
+2. Choose Policy + simulator, Policy only, or Simulator only.
+3. Drop the project ZIP and the real MP4 it produced, then add a name and short caption.
+4. Publish the video page to your builder profile. The ZIP stays private and non-downloadable.
+5. Play or download the MP4, share the page on X or LinkedIn, or copy its permanent link.
+6. Open Builders to meet people and explore their work across sports.
+
+- [Upload your work](/build#upload) — Share a policy, simulator, or both together.
+- [Meet builders](/leaderboard) — See people, projects, and real scored results.
+
+## When to use advanced workflows
+
+Use Run a guided job and the .him package workflow when your team needs reproducible execution, controlled datasets, checkpoints, evaluator output, CI, immutable versions, or an official benchmark submission.
+
+- [Advanced .him packages](/docs/him-package) — Package and validate an existing repository without rewriting it.
+- [Guided Compute](/compute?mode=job) — Run controlled jobs with packages, data, and saved outputs.
+
+
+---
+
+# Use an SSH machine
+
+> Generate a key, connect safely, and start building with an agent.
+
+Audience: Builders
+Updated: 2026-08-18
+Page: /docs/ssh-machine
+
+## 1. Make an SSH key on your laptop
+
+An SSH key lets your laptop prove its identity without sending a password. Generate it on your laptop—not inside HIM—and paste only the public half into Compute.
+
+**macOS, Linux, or WSL**
+
+```bash
+ssh-keygen -t ed25519
+cat ~/.ssh/id_ed25519.pub
+```
+
+**Windows PowerShell**
+
+```powershell
+ssh-keygen -t ed25519
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
+```
+
+> **Public key only:** Paste the single line beginning with ssh-ed25519. Never paste id_ed25519, a private-key block, a password, or an API token. HIM stores only the public-key fingerprint.
+
+## 2. Launch and connect
+
+1. Open Compute, choose a machine, and keep the recommended lifetime and credit ceiling for your first session.
+2. Paste your ssh-ed25519 public key and launch.
+3. Wait for Ready, then copy the ssh root@host -p port command.
+4. Run that command in your laptop terminal. SSH will ask you to trust this temporary machine's host key on the first connection.
+5. Work under /workspace. Stop the machine from HIM when you are finished; the idle and lifetime limits remain backups.
+
+- [Launch a machine](/compute) — Choose CPU or GPU and paste your public key.
+
+> **Browser and CLI use the same machine contract:** Use Compute above or him machine launch from a terminal. Both create one bounded, public-key-only SSH machine with the same allowlisted profiles, credit reservation, maximum lifetime, verified connection, owner visibility, and idempotent stop. This is one interactive machine—not a raw multi-node cluster.
+
+**Launch the recommended machine with the CLI**
+
+```bash
+him login
+him machine launch --key ~/.ssh/id_ed25519.pub --profile gpu --hours 2
+# The command waits for Ready and prints the exact ssh command.
+
+# Later, always stop it explicitly:
+him machine stop <machine-id>
+```
+
+## 3. Check the machine
+
+**Run after connecting**
+
+```bash
+cd /workspace
+python3 --version
+nvidia-smi  # GPU machines only
+git clone YOUR_REPOSITORY_URL
+cd YOUR_REPOSITORY
+# Install this repository's declared dependencies.
+```
+
+The standard workspace gives you a working shell, Python, Git, build tools, PyTorch, JAX, and CUDA on GPU machines. Install the simulator and repository-specific packages you need. The prebuilt HIM robotics environment is coming later after its own qualification.
+
+## 4. Building with an AI agent
+
+Start your preferred terminal coding agent inside the repository, then copy this single prompt. It covers downloading or locating the data, working in the existing repository, testing the result, and preparing the intended HIM upload. Replace the bracketed fields first.
+
+**Copy this complete build prompt**
+
+```text
+Complete the smallest safe end-to-end HIM builder workflow: launch or use one bounded SSH machine, get the data, improve the existing repository, verify the result, prepare its HIM upload, and stop the machine.
+
+Goal: [describe the table-tennis policy or simulator result we want].
+Repository: [Git URL and repository directory under /workspace].
+Project kind: [policy, simulator, or both].
+Run command: [the repository's existing headless command, or "discover it"].
+Upload name: [public project name].
+Data: [existing path, or "download HIM table-tennis data"].
+Machine: [already connected, gpu, gpu-48gb, or cpu].
+SSH public-key file on my laptop: [path, normally ~/.ssh/id_ed25519.pub].
+
+Safety and scope:
+- Work only in the named repository and /workspace. Never read or print private keys, tokens, .env files, keychains, or unrelated secrets. The CLI may read only the named .pub public-key file.
+- Inspect git status, README and agent instructions, dependency and lock files, tests, existing simulator/training commands, and available CPU/GPU before changing anything. Do not replace the project's native stack or invent a canonical simulator.
+- Do not commit or upload datasets, checkpoints, model weights, logs, credentials, caches, .git, or generated environments. Do not claim real-robot readiness from simulation alone.
+- Ask before launching a machine, reserving or spending credits, a large download, a long or expensive run, installing undeclared system software, changing infrastructure, committing changes, or uploading/publishing anything.
+
+Machine setup:
+1. If already connected to a HIM machine under /workspace, record its machine ID and skip to Data.
+2. Otherwise run him whoami --json and him machine launch --help. Show the selected allowlisted profile, two-hour lifetime, automatic minimum credit ceiling, public-key file path, and exact command.
+3. After I explicitly approve the launch, run: him machine launch --key [public-key-file] --profile [gpu|gpu-48gb|cpu] --hours 2 --yes --json
+4. Record the returned machine ID, expiration, host-key fingerprint, SSH command, and stop command. Never invent a host or connect before HIM reports Ready. If you cannot continue through SSH yourself, return the SSH command and tell me to start you again inside the cloned repository; keep the remaining steps as the handoff.
+5. On the machine, work under /workspace, clone the named repository if needed, and install only dependencies declared by that repository.
+
+Data:
+1. If Data names an existing path, inspect only its manifest, documentation, file names, sizes, and small safe samples needed to understand the format.
+2. If Data says to download HIM data, first show the expected destination and request approval; after approval run: him data download table-tennis --output /workspace/him-table-tennis-data --yes
+3. Keep data outside Git and record the exact data source, release, and paths used.
+
+Repository work:
+1. Explain the smallest end-to-end experiment that can run now and the exact existing entrypoint you will use.
+2. Implement that slice with minimal changes. Preserve native project structure, simulator, trainer, model format, and experiment tools.
+3. Run the shortest meaningful smoke test. Report the exact commands, metrics, failures, runtime, and output paths. Prefer reproducible scripts over one-off shell history.
+4. Show git diff, git status, and an inventory of the exact source files proposed for upload. Stop if tests fail or the intended run command is still unknown.
+
+Upload, only after I explicitly approve the inventory:
+1. Confirm the active HIM account with him whoami --json; never ask me to paste a token into chat.
+2. Create one source ZIP no larger than 100 MB containing only the approved project files. Exclude data, weights, checkpoints, logs, secrets, caches, .git, and local environments.
+3. Run: him upload <approved-project.zip> --kind [policy|simulator|both] --name "[public project name]" --run-command "[verified headless command]" --data-source "[exact data release or source]" --yes --json
+4. Return the upload URL and ID, archive SHA-256, uploaded file inventory, exact run command, data attribution, test evidence, and remaining limitations. Remember that the listing metadata is public while the ZIP stays private, quarantined, and non-downloadable.
+
+Shutdown:
+1. Confirm code, outputs, and approved uploads are safely stored outside ephemeral-only paths.
+2. Ask for final approval, then run: him machine stop <machine-id> --yes --json
+3. Confirm status stopped. Do not leave the machine running merely because it has an automatic lifetime.
+
+If this repository already uses a .him overlay and I ask for a reproducible guided Compute run instead of a simple listing, validate with him doctor . --json, him validate --json, and him test --local --json. Then ask separately before him run, because that uploads committed source privately and may spend credits.
+
+When the smoke test passes, also recommend the next experiment most likely to improve the policy and estimate its runtime and GPU cost.
+```
+
+## 5. Save your work and stop
+
+1. Commit or copy out the code, logs, metrics, and checkpoints you want to keep.
+2. Upload the project ZIP and its result MP4 from Build when you want a public video on your profile. The source stays private and non-downloadable.
+3. Return to Compute and press Stop machine when you finish. The maximum lifetime remains your automatic backstop.
+
+
+---
+
+# HIM Compute
+
+> Launch a flexible SSH machine. Use guided jobs when you need tighter controls.
+
+Audience: Builders
+Updated: 2026-08-17
+Page: /docs/compute
+
+## Launch an SSH machine
+
+1. Open Compute and choose CPU, a best-available 24 GB GPU, or a best-available 48 GB GPU. HIM automatically picks live Secure Cloud capacity within the displayed price tier.
+2. Set a maximum lifetime and hard credit limit.
+3. Paste one ssh-ed25519 public key. Never paste a private key.
+4. Launch the machine and copy the SSH command when provisioning is available.
+5. Clone your repository and use your normal shell, editor, simulator, and training commands.
+
+> **The flexible default:** SSH gives you a full shell and the least process. The fast workspace includes Python, Git, build tools, MuJoCo, MJX, PyTorch, and JAX; GPU profiles add CUDA. Use guided Compute for the separately qualified Isaac path.
+
+> **Runpod, billed in HIM credits:** Hosted SSH uses bounded Runpod Secure Cloud machines. HIM reserves the selected ceiling, settles actual elapsed time, stops idle machines, and never shows a connection command until the generated host key is verified.
+
+## SSH or guided?
+
+*Start with SSH unless you need a controlled run record.*
+
+| Mode | Best for | What HIM controls |
+| --- | --- | --- |
+| SSH machine — default | Exploration, training, simulation, debugging, and agent-driven work | Machine allowlist, owner access, budget, and automatic lifetime |
+| Guided job — advanced | Repeatable evaluation, CI, checkpoints, scoring, and exact artifacts | Package, inputs, runtime, outputs, evaluator, and execution record |
+
+> **Guided jobs use .him:** The sections below describe the advanced guided path. You do not need the CLI, a .him directory, or a HIM Package to launch an SSH machine.
+
+## Choose the job, not the infrastructure
+
+*Workload mapping*
+
+| Job | Typical entrypoint | Expected evidence | Common runtime |
+| --- | --- | --- | --- |
+| Inference | infer or inference | Predictions, logs, latency/usage | PyTorch, JAX, OpenPI, reviewed custom runtimes |
+| Simulation + evaluation | evaluate, simulation, or sim | Trajectory, isolated evaluator metrics, videos, environment | MuJoCo/MJX, Brax, Isaac Lab |
+| Training | train or training | Checkpoints, logs, evaluation outputs, resume identity | PyTorch/JAX with simulator rollouts |
+
+> **MuJoCo is not the trainer:** A training job commonly uses PyTorch or JAX for optimization and MuJoCo/MJX, Brax, or Isaac Lab to generate rollouts. HIM records the complete declared runtime and entrypoint without making the core model simulator-shaped.
+
+## What a completed job returns
+
+- Immutable job spec digest, attempt number, provider identity, lifecycle events, and timestamps.
+- Declared private outputs, logs, media, and checkpoints with owner-only delivery where hosted.
+- Execution disclosure: provider reported, provider verified, or reproduced by HIM in simulation.
+- For simulation, authoritative metrics only from the versioned evaluator attestation. Candidate logs, previews, and LLM text never become official scores.
+- A private package may return its own metrics and artifacts for debugging. HIM labels those as package-reported evidence; they become an Arena score only through the challenge's versioned evaluator.
+- For training, checkpoint identity and resume lineage across attempts.
+- For failures, an owner-only technical record with the failed stage, code, retry guidance, and private provider log when one exists.
+
+## Use HIM's table-tennis data
+
+HIM's released table-tennis data includes Rokoko body motion, Orbbec RGB-D sessions, and WitMotion paddle IMU recordings. Datasets shows HIM's files first, followed by datasets shared by builders.
+
+- [Open Datasets](/datasets) — See HIM's capture and builder datasets.
+
+> **Advanced: register large or versioned data:** Use the dataset CLI when you need immutable versions, large multi-file uploads, private inputs, or an exact guided-job mount. This is not required to download HIM's data.
+
+**Download from a terminal**
+
+```bash
+him data download table-tennis --output ./data --yes
+```
+
+**Advanced dataset workflow**
+
+```bash
+him dataset validate dataset-manifest.json
+him dataset push dataset-manifest.json \
+  --file r2://capture/session.mcap=./captures/session.mcap \
+  --file r2://capture/episodes.parquet=./derived/episodes.parquet \
+  --yes --json
+
+# Mount the registered version into the repository's normal entrypoint:
+him run --dataset <dataset-id> --yes --json
+```
+
+> **Private first:** Builders create private dataset versions. A HIM administrator can review and publish a ready version, then attach it to an exact Arena challenge. Large files stream directly to object storage; HIM does not buffer them through the web app.
+
+## Choose the right path
+
+*Start with the workflow that matches your goal.*
+
+| Goal | Start with | You receive |
+| --- | --- | --- |
+| Check a policy | Inference | Predictions, logs, latency, and declared outputs |
+| Measure behavior in simulation | Simulation + evaluation | Trajectory, evaluator metrics, artifacts, and media |
+| Improve a model | Training | Checkpoints, logs, evaluation outputs, and resume history |
+| Compete in a shared test | An Arena challenge | A verified score, run record, and leaderboard entry |
+
+> **Works with your stack:** HIM does not replace your repository, simulator, trainer, model architecture, dataset, cluster, or experiment tracker. It adds a consistent way to package work, run it, and keep the result verifiable.
+
+## Fix the common setup errors
+
+*Start here before changing your project.*
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| Nothing appears while pasting a developer token | The login prompt hides every character by design | Paste the token, press Enter, then run him whoami --json |
+| Cloudflare Error 1010 during him login | An outdated CLI sent a generic Python HTTP signature that Cloudflare rejected before HIM received the token | Update the HIM CLI and retry login; the token was not stored or consumed |
+| No .him directory | The repository has not been connected to HIM yet | Run him init once with the template that matches your project, then edit only the generated entrypoint |
+| Runtime family must be a short portable identifier | A display name, image tag, or command was used as the runtime | Use isaac_lab, mujoco_mjx, pytorch, jax, or brax; keep versions and commands in their own fields |
+| A hosted job does not start | The package or account needs a specific correction | Open the job and read the first failed lifecycle step, then run him doctor . --json before retrying |
+
+**Fast diagnostic**
+
+```bash
+him whoami --json
+him doctor . --json
+him validate --json
+him test --local --json
+```
+
+> **Keep the native repository workflow:** Do not rewrite a working Isaac, MuJoCo, training, or inference command to fit HIM. Put that command behind the generated .him entrypoint and let HIM handle packaging, launch, and outputs.
+
+
+---
+
+# Robotics training, without the fog
+
+> How inference, simulation, evaluation, training, and sim-to-real fit together.
+
+Audience: Product, robotics, and platform teams
+Updated: 2026-08-02
+Page: /docs/robotics-training
+
+## Three different loops
+
+*Do not use inference, evaluation, and training interchangeably.*
+
+| Loop | What changes | What it answers |
+| --- | --- | --- |
+| Inference | Nothing; a fixed policy produces actions or predictions | What does this brain do on these inputs? |
+| Simulation + evaluation | Initial state, seed, or bounded run parameters | How well does this fixed brain perform under a defined evaluator? |
+| Training | Model parameters, optimizer state, curriculum, or recipe | Can data or rollouts produce a better candidate? |
+
+A common robotics training job repeatedly resets a simulator, observes state, asks the current policy for an action, advances the physics, records reward or supervision, and updates the model. Checkpoints make the process resumable. A separate evaluation job freezes the candidate and measures it on a controlled seed/task distribution.
+
+## The evidence chain
+
+1. Capture or generate immutable data and identify its source, transforms, splits, calibration, and rights.
+2. Run a versioned training entrypoint and publish checkpoints plus environment and recipe identity.
+3. Freeze a candidate Brain Package with its weights, normalization, runtime contracts, and tests.
+4. Evaluate the candidate using hidden or isolated evaluator inputs that candidate code cannot rewrite.
+5. Record authoritative metrics, trajectory, media, environment, cost, and attestation.
+6. Compare or fork the result in Arena; promote toward hardware only through a separate supervised gate.
+
+## Common builder workflows
+
+*Map the work to HIM’s small job model.*
+
+| Workflow | HIM jobs | Typical outputs |
+| --- | --- | --- |
+| Batch policy regression | Inference → evaluation | Predictions, latency, pass/fail metrics |
+| RL in MJX or Brax | Checkpointed training → simulation evaluation | Orbax/PyTorch checkpoints, learning logs, fixed-seed scores |
+| Isaac Lab motion tracking | Training → play/evaluation → render | Checkpoint/export, trajectory, evaluator metrics, video |
+| Imitation learning | Dataset validation → training → held-out evaluation | Dataset lineage, checkpoint, task metrics |
+| Reward/curriculum tuning | Training recipe forks → common evaluation | Recipe lineage and comparable results |
+| Sim-to-sim portability | Same Brain Package → two simulator adapters | Adapter-specific environment evidence and metric deltas |
+| Sim-to-real nomination | Verified simulation result → supervised deployment candidate | Safety checks, bundle identity, explicit operator approval |
+
+## How HIM fits your stack
+
+- HIM standardizes packages, jobs, evaluators, artifacts, verification, lineage, and visibility.
+- You keep the model architecture, simulator tasks, reward function, native commands, datasets, checkpoints, cluster, and experiment tracker.
+- A simulator adapter maps native robot signals and episode semantics into a declared contract. It does not force a universal observation or action space.
+- A robot adapter maps the exact Booster, Unitree, or future robot version. Vendor behavior never becomes a product-level conditional.
+
+
+---
+
+# From private job to Arena
+
+> How comparison, evaluator trust, lineage, and the public learning loop work.
+
+Audience: Everyone
+Updated: 2026-08-02
+Page: /docs/arena
+
+## How Arena works
+
+1. Open a challenge and read the task, trial count, and scoring method.
+2. Package the policy entrypoint from your existing repository.
+3. Submit the policy you want to evaluate.
+4. HIM runs it with the same robot, starting conditions, trials, and evaluator used for every entry.
+5. See the score, builder, policy version, and evidence behind the run.
+6. The winning eligible Table Tennis policy may be reviewed for a supervised session on HIM’s real Unitree G1.
+
+## A visible path from simulation to a real robot
+
+Every HIM Official challenge shows the task, the reward, and the steps between a simulation score and hardware. Table Tennis leads to a supervised sim-to-real session on HIM’s Unitree G1. The completed Nick Kosir Dance challenge shows a prior full path: Stanford students at HIM retargeted the reference motion, trained and stabilized the policy in simulation, then transferred it to Adam.
+
+- Table Tennis is open: rank under the shared evaluator, pass HIM’s hardware review, and earn the winning eligible policy’s supervised Unitree G1 session.
+- Nick Kosir Dance is complete: more than 150 million training iterations led from reference video through MuJoCo and Isaac Lab to Adam.
+- Skateboarding is upcoming: test balance, recovery, and whole-body locomotion on a moving board.
+
+> **A score is a qualification, not a remote-control pass:** Hardware execution remains supervised and subject to policy compatibility, safety limits, and operator review. Arena never presents simulation as a real-robot result.
+
+> **Compute is optional:** Use HIM Compute when you need private inference, simulation, or training. Use Arena when you want to enter a shared challenge and publish a verified score.
+
+## Build with the challenge data
+
+HIM's real Rokoko motion, Orbbec RGB-D, and WitMotion paddle IMU table-tennis captures are available to download now. Hidden evaluator episodes stay private so the leaderboard measures generalization instead of memorization.
+
+- Released challenge data can be used with any training code or simulator.
+- Earned hardware data gives active builders access to hard-to-collect robot trajectories, telemetry, and synchronized video.
+- Hidden evaluation data is isolated from candidate code and never bundled into a public starter set.
+
+## What makes a score official
+
+- The evaluator version and digest are fixed before the result is published.
+- Candidate output freezes before evaluator execution.
+- Only evaluator-attested numeric metrics become authoritative.
+- The artifact manifest and result attestation bind the run, package, environment, and provider job.
+- Blind battle identity stays hidden until the vote/reveal rule permits it.
+- Hardware evidence requires a separate supervised Unitree G1 review; simulation never silently becomes a hardware claim.
+
+## Enter the live challenge
+
+- [Open Arena](/) — Open the live table-tennis challenge.
+- [Open Results](/leaderboard) — See separate Official, Community, and Unitree G1 result lanes.
+- [Upload a policy](/build#policy) — Publish a policy build without inventing a score.
+- [Read the dance case study](https://www.himrobotics.com/blog/nickkosir) — See how a student-built dance policy moved from simulation to Adam.
+
+
+---
+
+# MuJoCo and MJX workflow
+
+> Package, run, evaluate, and compare a MuJoCo-family robotics workflow.
+
+Audience: Simulation and learning engineers
+Updated: 2026-08-02
+Page: /docs/mujoco-mjx
+
+## Choose classic MuJoCo or MJX deliberately
+
+*The same HIM contracts can wrap different execution shapes.*
+
+| Runtime | Good fit | Typical resource |
+| --- | --- | --- |
+| MuJoCo | Single/few environments, debugging, deterministic evaluation, CPU rendering | CPU standard or modest GPU for policy inference |
+| MJX | Large batched JAX rollouts and accelerator training | GPU standard/high-memory depending on batch and model |
+| Brax | JAX-native training and fast batched physics where task fidelity fits | GPU standard |
+
+## Run the workflow
+
+**Run your repository**
+
+```bash
+# From a committed repository with .him/him.yaml:
+him doctor . --json
+him validate --json
+him test --local --json
+him run --runtime mujoco_mjx --max-credits 100 --json
+him job watch <job-id> --json
+
+# Or configure the job in the browser:
+# /compute?recipe=mujoco-evaluation
+```
+
+> **What HIM records:** Each result identifies the package, runtime, configuration, artifacts, and execution source that produced it. Private package metrics are useful evidence, but only challenge-evaluator metrics become official scores.
+
+> **Keep your existing output path:** New integrations should write to HIM_CANDIDATE_OUTPUT, HIM_EVALUATION_OUTPUT, or HIM_MEDIA_OUTPUT. Existing projects that write artifacts/result.json still work: HIM returns the result as the private summary and preserves the artifacts directory as a downloadable package-artifacts.zip.
+
+> **G1 table-tennis example:** The development scene uses the official Unitree 29-DOF G1 model with a fixed pelvis. Builders can iterate quickly in MuJoCo; selected policies move to a separate Isaac validation lane. A fixed-base result does not claim balance, locomotion, or hardware compatibility.
+
+## Declare the native entrypoint
+
+**Relevant .him/him.yaml section**
+
+```yaml
+entrypoints:
+  - id: evaluate
+    purpose: evaluation
+    execution_mode: python
+    command: [python, -m, my_project.him_evaluate]
+    working_directory: .
+    runtime_interface_ref: .him/contracts/runtime.json
+    resource_class: cpu-standard
+    network_policy: none
+    secret_refs: []
+    timeout_seconds: 1800
+compatibility:
+  frameworks: [mujoco, jax]
+publication:
+  visibility: private
+```
+
+Keep the project’s native command. The adapter should accept an immutable run spec and attempt-scoped paths, then write trajectory/state and environment evidence. Do not move simulator code into HIM or translate JAX checkpoints to PyTorch.
+
+## Map the simulator boundary
+
+- Robot and model identity: exact MJCF/URDF/assets digest and adapter version.
+- Observation names, ordering, shapes, units, rates, frame conventions, and normalization.
+- Action names, ordering, units, limits, control mode, decimation, and fallback behavior.
+- Seed, reset/initial state, episode horizon, termination, truncation, and intervention semantics.
+- Candidate trajectory/state paths, evaluator input/output path, logs, render inputs, and expected media.
+- Evaluator digest and metric definitions. Reward logged by training may be useful, but only the isolated evaluator publishes official metrics.
+
+## Connect your simulator safely
+
+1. Package the smallest existing smoke scenario and keep its native command.
+2. Declare the robot assets, observations, actions, units, reset behavior, evaluator, and expected outputs.
+3. Run him doctor and resolve missing assets, commands, licenses, runtime requirements, or signal mappings.
+4. Run one short private scenario, freeze its outputs, evaluate separately, and render only recorded state.
+5. Repeat the same seeds and test cancellation, timeout, and failure paths before publishing a result.
+
+## Use MJX rollouts in a training job
+
+**Approved package command shape**
+
+```bash
+him job launch training \
+  --runtime mujoco_mjx \
+  --resource gpu-memory \
+  --max-wall-seconds 86400 \
+  --package-digest sha256:<package-lock-digest> \
+  --entrypoint train \
+  --json
+```
+
+The package’s train entrypoint owns the JAX/PyTorch loop and checkpoint format. HIM records attempts, runtime limits, checkpoints, resume history, private artifacts, and later evaluation. Hosted execution is available only for runtime profiles that have passed environment and output checks.
+
+
+---
+
+# Isaac Sim and Isaac Lab workflow
+
+> Prepare a headless Isaac workload and verify its requirements before the first run.
+
+Audience: Isaac Lab and robot integration engineers
+Updated: 2026-08-02
+Page: /docs/isaac-sim
+
+## Current status
+
+> **Private preview:** HIM can run approved Isaac repositories in its hosted environment. Access is currently limited to HIM’s internal team while we qualify more workloads. Your repository supplies its real headless command and outputs; HIM supplies the environment and GPU.
+
+- [Open Isaac Lab task](/compute?recipe=isaac-simulation) — Configure a private Isaac simulation workload.
+- [Connect an Isaac repository](/docs/him-package) — Add the package entrypoints and output contracts.
+
+## The first hosted check
+
+HIM qualifies each Isaac runtime with a small headless smoke workload before enabling larger jobs. The check loads the real repository command, runs a bounded number of environments and iterations, writes declared outputs, and stops. Its purpose is to verify the execution path—not to train a useful policy.
+
+The next internal check uses the official 29-DOF Unitree G1 model in a fixed-base table-tennis scene. Builders iterate in MuJoCo, then HIM reruns selected candidates in Isaac Lab. The results stay in separate lanes because the physics engines are not interchangeable.
+
+1. Add the generated .him folder to the repository and keep the project's existing headless Isaac command.
+2. Add a package test for every required asset or motion file. If a converter expects numeric rows, verify the input has the expected column order and no header.
+3. Run him doctor, him validate, and him test --local before spending GPU credits.
+4. Run him run. HIM uploads the clean commit and .him overlay as separate private, immutable inputs, then chooses the approved Isaac environment and GPU worker.
+5. Watch the job, then inspect its summary, numeric metrics, and logs. Scale iterations or environments only after the smoke run passes.
+
+> **You do not manage the cloud image:** Builders do not need an NGC token, Modal account, R2 keys, Docker registry, or GHCR image. Those belong to HIM's hosted runtime. Your repository supplies the command and code; HIM supplies the approved environment.
+
+## Facts required before the first real run
+
+- Exact Isaac Sim and Isaac Lab versions required by the repository. HIM pins and certifies the hosted image; builders do not need to publish one.
+- NVIDIA driver, GPU model/VRAM, headless RTX/Vulkan/PhysX/camera/video probes, disk, timeout, and expected cost class.
+- Recorded NVIDIA EULA acceptance and source/asset/output/media publication rights.
+- Exact robot asset/world load, observation/action ordering and units, control rate/decimation, reset/seed, and termination mapping.
+- Native train, play/evaluate, export, and render commands that the upstream repository already uses.
+- An isolated evaluator plus trajectory and factual media outputs. Reward or LLM summaries are never authoritative metrics.
+
+> **Visible challenge, private holdout:** HIM publishes the robot interface, units, control rate, scoring formula, trial ranges, failure codes, and a representative development scene. Ranked seeds and exact sampled launches stay with the server-owned evaluator, outside your repository and package.
+
+## Validate the environment before the first job
+
+1. Run him init . --template isaac-lab in the existing repository.
+2. Set the native headless command the project already uses in .him/him.yaml.
+3. Declare the robot assets, signal mapping, reset behavior, evaluator, and expected outputs.
+4. Commit the source, run him doctor, then run him run. HIM uploads the clean committed source and its .him package separately so both identities stay verifiable.
+5. Start with the smallest private scenario and verify its artifacts before scaling up.
+
+> **No registry setup required:** HIM maps isaac_lab to a certified hosted environment and caches it internally. Modal is primary and qualified workloads may use a HIM-owned secondary provider. If a repository needs a special environment, HIM reviews and adds that runtime behind the same .him flow. GHCR is not part of the builder setup.
+
+## The required episode pipeline
+
+1. Simulate: load the exact world/robot/brain and write candidate trajectory, summary, environment, and bounded logs.
+2. Freeze: make candidate output immutable for the attempt.
+3. Evaluate: read frozen candidate state and emit authoritative=true plus numeric metrics from a versioned evaluator.
+4. Render: derive diagnostic, 16:9, 9:16, and poster media only from recorded state and evaluator output.
+5. Attest: bind run spec, package, evaluator, environment, manifest, provider job, and Ed25519 signature.
+6. Ingest privately: verify exact bytes and identities before any owner or Arena view can use the result.
+
+> **Result video comes from your job:** HIM preserves native simulator video when the hosted environment supports it. Otherwise, HIM renders the exact trajectory recorded during your run. The result page labels the source, and a reference demo is never presented as your job output.
+
+## If the first hosted run fails
+
+*Common Isaac setup failures*
+
+| What you see | What to do |
+| --- | --- |
+| The .him folder is missing | Run him init . --template isaac-lab from the repository root, then set the generated entrypoint to the command the project already uses. |
+| Runtime family must be a short portable identifier | Use isaac_lab. Do not enter an image tag, version, provider name, or shell command as the runtime. |
+| No module named 'isaaclab' | Launch native Isaac scripts with /isaac-sim/python.sh instead of generic Python. Keep setup scripts that do not import Isaac in your normal Python environment. |
+| The repository is dirty | Review and commit the intended source first. HIM runs an exact clean commit so the hosted result can be reproduced. |
+| A required repository path is missing | Run the same .him entrypoint locally. Fix the path relative to the repository root; do not add a machine-specific absolute path. |
+| A motion or dataset fails to load | Test the exact source file before launch. Check its header, column order, units, and coordinate convention against the repository's native converter. |
+| The simulation finishes but no result is published | Declare an evaluator that writes authoritative=true and at least one numeric metric. Logs and summaries are useful evidence, but they are not scored metrics. |
+| The hosted runtime is not ready | Your package is valid, but HIM has not enabled this Isaac profile yet. Retry after the runtime is marked available; do not add provider credentials to your repository. |
+
+
+---
+
+# Booster and Unitree workflows
+
+> Connect Booster or Unitree through a versioned robot adapter.
+
+Audience: Robot integration engineers
+Updated: 2026-08-02
+Page: /docs/booster-unitree
+
+## Keep robot details in the adapter
+
+Booster K1 is the first physical adapter because Adam uses that platform. It is not HIM’s core robot model. Unitree and every future robot enter through the same RobotManifest, signal contracts, simulator adapters, deployment adapters, safety limits, and conformance suite.
+
+- Core product code never assumes a vendor, joint count/order, topic name, SDK command, humanoid embodiment, simulator, or action representation.
+- A Brain declares required capabilities and signals. Compatibility resolves through exact robot and adapter versions.
+- Vendor assets, commands, firmware, extensions, and license constraints remain behind their package/adapter boundary.
+
+## Booster workflow
+
+1. Replay one approved K1 reference motion and label it Reference Motion Replay—not a trained brain.
+2. Train or load one motion-tracking controller using the upstream Booster Train/Isaac Lab workflow.
+3. Export a Brain Package containing the checkpoint/deployment artifact, observation/action contracts, normalization, and safety envelope.
+4. Evaluate two brains or recipes under the same motion challenge and isolated evaluator.
+5. Publish truthful simulation media and fork lineage in Arena.
+6. Move only an eligible release into the supervised Adam workflow; start with the least dynamic approved motion.
+
+**AI-assisted overlay prompt**
+
+```text
+Read the HIM Package and Isaac workflow docs. Inspect this robotics project before executing anything. Preserve its Isaac Lab layout and native commands. Propose a private .him-only overlay for the K1 train, play, evaluate, and export workflow, and show the diff before writing. Do not invent versions, task names, signal mappings, licenses, or hardware eligibility.
+```
+
+> **Verify the project before execution:** Resolve missing assets, credential exposure, unpinned environments, incomplete motion files, and evaluator gaps before the first run. A named task is not proof that the project is safe or runnable.
+
+## Add Unitree without changing the product
+
+1. Identify the purchased SKU, options, firmware, sensors, limits, and lawful asset/SDK source.
+2. Create an immutable RobotVersion and simulator/deployment adapter package.
+3. Map native observation/action names, ordering, units, frames, timing, reset, safety, and stale-input behavior.
+4. Pass manifest, asset, signal, deterministic reset, simulator smoke, evaluator, timing, version mismatch, and deployment dry-run tests.
+5. Run a physically meaningful version of the same challenge and compare embodiment-specific results without changing Arena routes or Compute job types.
+
+> **Confirm the hardware details:** The included Unitree sample demonstrates the adapter shape only. Replace its assumptions with the exact joint count, firmware, control frequency, limits, sensors, and safety boundary for your robot.
+
+## What you need
+
+- Absolute local workspace or immutable image and permission to inspect before execution.
+- Exact setup, smoke, train/play/evaluate/render commands and clean shutdown behavior.
+- Robot/simulator/asset/runtime versions and current source commit/digest.
+- Observation/action/normalization/timing/reset/termination mapping and intended evaluator.
+- One representative successful output inventory and expected media path.
+- Source, asset, weight, output, and publication rights plus required redactions.
+
+
+---
+
+# Bring an existing robotics repository
+
+> Use a .him overlay without replacing the repository, simulator, trainer, or agent.
+
+Audience: Builders and research teams
+Updated: 2026-08-02
+Page: /docs/him-package
+
+## The overlay is the integration
+
+A HIM Package is an immutable envelope around work you already have. It declares identity, entrypoints, runtime/process contracts, artifacts, tests, compatibility, security, provenance, licenses, and publication policy. It does not force a HIM training framework or source layout.
+
+**Typical repository shape**
+
+```text
+your-robotics-repo/
+├── existing source, configs, trainer, simulator, datasets...
+└── .him/
+    ├── him.yaml
+    ├── contracts/
+    ├── adapters/
+    ├── samples/
+    └── tests/
+```
+
+## Package workflow
+
+**Connect, validate, and run**
+
+```bash
+# Run once from the root of an existing robotics repository.
+him init .
+# Simulator repositories: him init . --simulator
+
+# Point the generated entrypoint at the command the project already uses.
+# Review the .him files, then commit the intended source.
+him doctor . --json
+him validate --json
+him test --local --json
+
+# Review the source upload and credit limit when prompted.
+him run --max-credits 100 --json
+him job watch <job-id> --json
+
+# Upload an unlisted package without launching a job:
+him push --yes --json
+```
+
+- Repeated builds produce identical lock and archive bytes.
+- The CLI shows the exact package and committed-source upload before a run.
+- Credential-like filenames, escaping symlinks, missing artifacts, invalid contracts, and publication-right gaps fail closed.
+- Source is a separate private, digest-bound Git snapshot. Weights, datasets, endpoint addresses, and calibration stay in declared artifacts behind object-level authorization.
+- Most projects upload all committed source outside .him. Large multi-project repositories can set extensions.source_paths to an exact list of committed files and directories so unrelated workspaces are not uploaded.
+- Hosted commands receive HIM_CANDIDATE_OUTPUT, HIM_EVALUATION_OUTPUT, and HIM_MEDIA_OUTPUT. Existing artifacts/result.json outputs are preserved automatically for compatibility.
+
+**Optional: narrow a multi-project repository**
+
+```yaml
+extensions:
+  source_paths:
+    - robotics/assets
+    - robotics/train
+    - motions/dance.csv
+```
+
+> **Keep .him out of source_paths:** List only committed files or directories outside .him. HIM packages the .him overlay automatically, so adding .him or one of its subdirectories fails before upload. Paths are relative to the repository root.
+
+> **If the repository does not have .him yet:** That is normal. Run him init once; do not hand-write the entire manifest. Keep the repository’s native command and source layout, then let him doctor identify the remaining facts before a cloud run.
+
+> **Runtime names are portable identifiers:** Use isaac_lab, mujoco_mjx, pytorch, jax, or brax. Names such as “Isaac Lab 2.2”, image tags, shell commands, and provider-specific GPU labels are not runtime names. Normally him run selects the runtime from your package, so you do not need to type one.
+
+## Entrypoints preserve native work
+
+*Common package entrypoints*
+
+| Purpose | Examples | HIM expectation |
+| --- | --- | --- |
+| Inference | Python module, OCI command, policy service, private endpoint | Typed observations/actions or declared batch inputs/outputs |
+| Evaluation | MuJoCo episode driver, Isaac play task, regression harness | Frozen candidate output and isolated evaluator contract |
+| Training | torchrun, JAX/Orbax, native lab pipeline, multi-stage DAG | Checkpoint/resume, budgets, promoted candidate outputs |
+| Render | Simulator camera or trajectory renderer | Factual media derived from recorded state |
+| Deployment | Booster/Unitree adapter bundle | Separate hardware readiness and safety gate |
+
+## Use the same contract with coding agents
+
+Use Copy for AI at the top of any guide to generate a complete setup prompt for Codex, Claude Code, Cursor, or another coding agent. The prompt tells the agent to inspect first, preserve native commands, edit only .him by default, validate locally, and ask before it uploads source or spends credits.
+
+- [AI handoff](/docs/ai-handoff) — Copy a bounded prompt and machine-readable docs context.
+- [CLI and API](/docs/cli-api) — Use the same package and job contracts programmatically.
+
+
+---
+
+# CLI and Compute API
+
+> Launch SSH machines and manage private guided jobs programmatically.
+
+Audience: Developers and automation authors
+Updated: 2026-08-24
+Page: /docs/cli-api
+
+## Connect your tools
+
+1. Install the HIM CLI once on your workstation.
+2. Sign in to HIM with GitHub or Discord.
+3. Open Account and create a developer token under API Tokens.
+4. Run him login. Paste the token into the hidden prompt; it will not enter shell history.
+5. Run him whoami to verify the account and access before starting a job.
+
+**Connect the CLI**
+
+```bash
+curl -fsSL https://arena.himrobotics.com/install.sh | sh
+him login --api-url https://<arena-origin>
+him whoami --json
+
+# CI: store both values in your CI provider's secret settings
+export HIM_API_URL=https://<arena-origin>
+export HIM_TOKEN=him_pat_<secret>
+```
+
+> **The token prompt stays hidden:** Paste the token and press Enter even though the terminal displays nothing. This is intentional. For CI, skip the prompt and store HIM_API_URL and HIM_TOKEN as encrypted environment secrets.
+
+> **Keep the token out of your repository:** HIM shows the token once. Never put it in source, .him, a package manifest, a command argument, or a log. Create a separate expiring token for each machine or CI environment and revoke it from Account when it is no longer needed.
+
+## Launch an SSH machine
+
+The CLI uses the same owner-scoped machine service as Compute. It reads one public-key file, chooses an allowlisted profile, calculates the minimum safe credit ceiling from live capabilities, waits for a verified SSH endpoint, and prints the connection and stop commands.
+
+**SSH machine lifecycle**
+
+```bash
+him machine launch --key ~/.ssh/id_ed25519.pub --profile gpu --hours 2
+him machine list --json
+him machine status <machine-id> --json
+him machine watch <machine-id> --json
+him machine stop <machine-id>
+```
+
+> **Stop it when you finish:** The hard lifetime is a backstop. Copy out the work you need, then use him machine stop so HIM terminates the provider machine and settles the credit reservation immediately.
+
+## Upload a policy or simulator
+
+Create a metadata-only Builder listing from the CLI. The browser flow additionally accepts and publishes a result MP4. In both cases the ZIP stays private and non-downloadable.
+
+**Headless Builder upload**
+
+```bash
+him upload ./project.zip \
++  --kind policy \
++  --run-command "python evaluate.py" \
++  --yes --json
+```
+
+## CLI job commands
+
+**Common commands**
+
+```bash
+# From a repository with .him/him.yaml and a clean commit:
+him run --max-credits 100 --yes --json
+him job watch <job-id> --follow --json
+
+# Upload a versioned private dataset:
+him dataset push dataset-manifest.json --file URI=PATH --yes --json
+
+# Create a Community challenge from that package:
+him catalog create-challenge sha256:<package-lock-digest> \
+  --name "Balance Recovery" \
+  --description "Recover from a repeatable push." \
+  --simulator-entrypoint evaluate \
+  --score-metric success_rate \
+  --yes --json
+
+# Enter an exact challenge version with your policy package:
+him arena submit <challenge-version-id> \
+  --package sha256:<policy-package-digest> \
+  --entrypoint evaluate --json
+him arena leaderboard <challenge-version-id> --json
+
+# Lower-level controls:
+him job launch inference --runtime pytorch --json
+him job launch simulation --runtime mujoco_mjx --json
+him job launch simulation --runtime isaac_lab --resource gpu-memory --json
+him job launch training --runtime jax --max-wall-seconds 86400 --json
+him job list --json
+him job cancel <job-id> --json
+him job resume <training-job-id> --json
+him job retry <failed-job-id> --json
+```
+
+**Approved package entrypoint**
+
+```bash
+him job launch simulation \
+  --runtime mujoco_mjx \
+  --package-digest sha256:<package-lock-digest> \
+  --entrypoint evaluate \
+  --idempotency-key team-eval-2026-07-21-001 \
+  --json
+```
+
+## Versioned API
+
+*Standalone Compute endpoints*
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | /api/health | Public deployment and provider readiness |
+| GET | /api/v1/compute/capabilities | Provider, workloads, and whether code execution is enabled |
+| GET | /api/v1/compute/ssh-machines/capabilities | Allowlisted machine profiles, environments, prices, and lifetime limits |
+| GET / POST | /api/v1/compute/ssh-machines | List owner machines or launch one bounded SSH machine |
+| GET | /api/v1/compute/ssh-machines/:workspaceId | Refresh owner-only status and verified connection details |
+| POST | /api/v1/compute/ssh-machines/:workspaceId/stop | Idempotently terminate the machine and settle credits |
+| GET | /api/v1/compute/jobs | List the current owner’s private jobs |
+| POST | /api/v1/compute/jobs | Launch an immutable private job |
+| PUT | /api/v1/packages/:packageDigest/archive | Store the exact private .him package archive |
+| PUT | /api/v1/packages/:packageDigest/source | Store a clean private Git source snapshot by digest |
+| GET | /api/v1/compute/jobs/:jobId | Read lifecycle, attempt, result, and evidence |
+| POST | /api/v1/compute/jobs/:jobId/cancel | Cancel inside the allowed window |
+| POST | /api/v1/compute/jobs/:jobId/retry | Retry a retryable failure as a new attempt |
+| POST | /api/v1/compute/jobs/:jobId/resume | Resume cancelled training from a published checkpoint |
+| GET | /api/v1/compute/jobs/:jobId/artifacts?uri=... | Owner-only verified artifact delivery |
+| GET | /api/v1/compute/jobs/:jobId/failure-log | Owner-only provider log or sanitized failure timeline |
+| POST | /api/v1/datasets | Register a private immutable dataset version |
+| POST | /api/v1/datasets/:datasetId/artifacts | Issue one exact direct-upload grant |
+| POST | /api/v1/datasets/:datasetId/finalize | Verify and finalize the Dataset Manifest |
+| POST | /api/v1/packages/:packageDigest/promote-to-arena | Idempotently add package-declared immutable catalog versions |
+| POST | /api/v1/packages/:packageDigest/community-challenges | Create a Community challenge from package entrypoints |
+| POST | /api/v1/community-challenges/:challengeVersionId/submissions | Enter an approved policy package in an exact Community challenge |
+| GET | /api/v1/community-challenges/:challengeVersionId/leaderboard | Read that version’s provider-verified Community rankings |
+
+**Launch a simulation from a signed-in client**
+
+```typescript
+const response = await fetch(`${process.env.HIM_API_URL}/api/v1/compute/jobs`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${process.env.HIM_TOKEN}`,
+    "Content-Type": "application/json",
+    "Idempotency-Key": crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    workload: "simulation",
+    templateId: "mujoco-simulation-contract",
+    runtimeFamily: "mujoco_mjx",
+    source: {
+      kind: "him_package",
+      packageDigest: "sha256:<package-lock-digest>",
+      entrypointId: "evaluate",
+    },
+    resourceClass: "gpu-standard",
+    maxWallSeconds: 1800,
+    maxCredits: 100,
+  }),
+});
+
+if (!response.ok) throw new Error(`Job launch failed: ${response.status}`);
+const job = await response.json();
+```
+
+> **Authentication:** Browser requests use your signed-in session. CLI, CI, and external API clients use an expiring developer token. Both resolve to the same builder account, so packages, jobs, credits, artifacts, and checkpoints keep the correct owner.
+
+## API rules
+
+- Every write requires a stable Idempotency-Key. Repeating the same action is safe; conflicting reuse fails.
+- Send developer tokens only in the Authorization Bearer header. HIM rejects invalid, expired, or revoked tokens and does not fall back to another identity.
+- Use packages:write to push repositories, datasets:write to register captures, and compute:write to launch or manage jobs. Read-only tokens cannot mutate those resources.
+- Compute jobs are private and owner scoped. Super-admin management permission does not silently make results public.
+- Clients select a portable resource class. HIM maps it to an available runtime profile and enforces the job’s limits.
+- 401 means sign-in is required; 403 means the signed-in account lacks permission; 409 means the requested lifecycle action is not currently allowed.
+- A result is complete only after HIM has recorded its final lifecycle state, artifacts, and evidence.
+
+
+---
+
+# Set up HIM with a coding agent
+
+> Give Codex, Claude Code, Cursor, or another agent the exact setup task.
+
+Audience: Developers using coding agents
+Updated: 2026-08-02
+Page: /docs/ai-handoff
+
+## Copy the setup prompt
+
+Choose Copy for AI at the top of this guide—or any HIM guide—then paste the prompt into your coding agent from the repository you want to connect. The generated prompt includes absolute links back to the current Arena docs.
+
+- [llms.txt](/llms.txt) — Compact product, contract, and guide index.
+- [Full docs as Markdown](/docs/llms-full.txt) — All in-product docs from the same typed source.
+- [Public schemas](/docs/him-package) — Start with the package and contract boundary.
+
+The agent should inspect the repository, identify its real headless command, create the smallest .him overlay, and run local checks. It must stop for your approval before uploading committed source or consuming compute credits.
+
+## Repository integration prompt
+
+**Use with Claude Code, Codex, Cursor, or another coding agent**
+
+```text
+Read the HIM Package guide linked in the copied prompt.
+
+Goal: connect this existing robotics repository to HIM without replacing its native simulator, trainer, commands, or source layout.
+
+Rules:
+- Inspect the repository first. Do not read .env files, credentials, tokens, or large model/data files.
+- Use him init only when .him is missing. Edit only .him by default.
+- Show the proposed diff before writing.
+- Run him doctor . --json, him validate --json, and him test --local --json.
+- Stop and explain any failed check. Do not weaken tests or invent missing facts.
+- Ask before running him run because it uploads committed source privately and may spend credits.
+- Return the exact commands, results, job ID, and job URL.
+```
+
+## Simulator intake prompt
+
+**Use before a MuJoCo or Isaac integration**
+
+```text
+Read the MuJoCo or Isaac guide linked in the copied prompt. Inspect this simulator project without reading secrets. Identify the smallest native headless command, robot assets, task launcher, evaluator, output and media paths, signal mapping gaps, licenses, and runtime requirements. Propose a private .him overlay, show every change, and use the smallest local smoke test before requesting approval for a cloud run.
+```
+
+## A good agent handoff returns
+
+- Files inspected and the exact immutable source/package identity used.
+- Facts learned versus assumptions/unknowns that still require a human.
+- A minimal .him-only diff with contracts, adapters, samples, tests, and private publication policy.
+- Commands proposed, which were actually executed, and their exact results.
+- Security, license, privacy, simulator, timing, and hardware limitations.
+- The next smallest safe action—not a broad rewrite or hidden provider deployment.
+
+
+---
+
+# Trust, failures, and operations
+
+> Understand evidence labels, permissions, retries, and what to inspect when a job fails.
+
+Audience: Operators and platform engineers
+Updated: 2026-08-02
+Page: /docs/trust-operations
+
+## Read the evidence label first
+
+*Compute result trust labels*
+
+| Label | Meaning | May claim |
+| --- | --- | --- |
+| provider_reported | A provider returned a result that has not passed the full verified projection | Provider-reported facts with disclosure |
+| provider_verified | Attempt/spec/package/manifest/attestation/signature/evaluator checks passed | Only the exact verified private result; not a hardware claim |
+| HIM reproduced in simulation | A reviewed simulator and evaluator ran under a recorded execution boundary | Only that recorded simulation environment and profile |
+
+## Failure ownership matters
+
+*Use the failure class to choose the next action.*
+
+| Class | Examples | Next action |
+| --- | --- | --- |
+| Policy | Unapproved profile, digest drift, unsafe path, missing grant | Fix configuration/approval; do not retry unchanged |
+| Package | Entrypoint failure, missing declared output, contract mismatch | Fix or republish a new immutable package |
+| Simulator | Asset load, physics/task crash, invalid trajectory | Inspect adapter/environment and reproduce locally |
+| Evaluator | Malformed/non-authoritative metric output | Fix the evaluator separately; candidate output stays frozen |
+| Infrastructure | Provider timeout, preemption, upload/callback transport | Retry/reconcile according to retryable flag and cost policy |
+| Cancelled | Owner cancellation inside the allowed window | Retain the lifecycle record; resume training only from a published checkpoint |
+
+## Operator checklist
+
+1. Open the job and identify status, stage, attempt, provider job ID, spec digest, package entrypoint, and last immutable event.
+2. Confirm whether the output is provider reported, provider verified, or reproduced by HIM in simulation.
+3. Inspect bounded logs and environment identity without exposing secrets or private source paths.
+4. Check artifact manifest, attestation, evaluator digest, signature key ID/state, callback identity, and owner-only publication projection.
+5. Choose cancel, retry, resume, or package/config fix based on the failure owner and retryable flag.
+6. Record the incident and do not publish a score while its evidence is uncertain.
+
+- [Operations](/operations) — Inspect current run attempts and provider state.
+- [User management](/admin/users) — Administrator access only.
+
+
+---
+
+# Build a community challenge
+
+> Package your simulator and evaluator, share the test, and keep its trust clear.
+
+Audience: Simulation and evaluation builders
+Updated: 2026-07-29
+Page: /docs/community-challenges
+
+## Keep the simulation stack you already use
+
+A community challenge is a versioned simulator and evaluator from a builder-owned HIM Package. Keep your repository layout, language, framework, assets, and native commands. The .him overlay tells HIM which entrypoints to run and which outputs to preserve.
+
+- MuJoCo, MJX, Brax, Isaac Lab, custom Python, and immutable OCI entrypoints use the same package flow.
+- Community challenge v1 uses one headless harness entrypoint for simulation and scoring; it may call separate modules inside your repository.
+- The package digest pins the code, and every challenge version is immutable.
+- Private packages create private challenges. Publish the package first when you want others to run it.
+- Use a challenge package you are comfortable making inspectable to participants; creator and candidate code share the Community sandbox.
+
+- [Create a community challenge](/challenges/new) — Choose an existing package and connect its entrypoints.
+- [Send this to an AI agent](/docs/agent-setup.txt?guide=community-challenges) — Give a coding agent a bounded setup prompt for this workflow.
+
+## From repository to shared challenge
+
+1. Add a small .him overlay to the repository that already owns the simulator and evaluator.
+2. Declare the real headless harness command that runs the simulation, invokes the candidate, and writes evaluation/evaluator.json.
+3. Validate, push the immutable package, and run it privately in Compute.
+4. Open Account, choose Create challenge, select package entrypoints, and name the score metric.
+5. Choose private, unlisted, or public visibility, then share the challenge.
+6. Participants select an owned policy package on the challenge page or run him arena submit.
+7. Matching provider-verified scores appear on that exact version's Community leaderboard.
+
+**Smallest builder flow**
+
+```bash
+him init . --template single-policy
+# Keep the native simulator command in .him/him.yaml
+him doctor . --json
+him validate --json
+him test --local --json
+# After approval, upload the package + clean source and run its smoke job:
+him run --max-credits 100 --yes --json
+
+him catalog create-challenge sha256:<challenge-package-digest> \
+  --name "Balance Recovery" \
+  --description "Recover from a repeatable push." \
+  --simulator-entrypoint evaluate \
+  --score-metric success_rate \
+  --yes --json
+```
+
+> **No prescribed robotics framework:** HIM validates the execution boundary and outputs, not how your project is organized. Do not wrap working code in a new framework just for HIM.
+
+## HIM Official and Community stay distinct
+
+*Challenge trust is visible wherever a result appears.*
+
+|  | HIM Official | Community |
+| --- | --- | --- |
+| Owner | HIM controls the challenge | The named builder controls it |
+| Evaluator | Reviewed and separately hosted | Pinned inside the creator's package |
+| Results | Eligible for the official leaderboard | Its own creator-defined Community leaderboard |
+| Hardware | May qualify for supervised review | Requires HIM review first |
+
+> **A public evaluator can be optimized directly:** Community tests are intentionally inspectable, including the creator harness used during a participant run. A challenge needs an independently reviewed, hidden evaluation path before HIM treats it as authoritative or connects it to hardware qualification.
+
+## How participant policies run
+
+HIM pins the creator's challenge package and the participant's approved policy package in one private, network-disabled Compute job. The creator's harness receives bounded candidate paths, runs the declared entrypoint, and emits the fixed score metric. Only provider-verified or trusted-local metrics with the exact challenge evaluator digest can rank.
+
+**Enter from a terminal or agent**
+
+```bash
+him arena submit <challenge-version-id> \
+  --package sha256:<policy-package-digest> \
+  --entrypoint evaluate \
+  --json
+
+him arena leaderboard <challenge-version-id> --json
+```
+
+> **Official promotion is a new trust decision:** A Community leaderboard verifies package and execution identity, not evaluator independence. HIM can review a useful Community test later and publish a separate HIM Official version with isolated evaluation and held-out conditions.

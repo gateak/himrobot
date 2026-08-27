@@ -1,0 +1,35 @@
+<!-- Source: https://arena.himrobotics.com/llms.txt — fetched 2026-08-27 with the CLI token (private preview). -->
+# HIM Compute and HIM Arena
+
+> HIM runs private robotics inference, simulation, evaluation, and training jobs. Arena lets builders submit a policy to a shared challenge and publish a verified score.
+
+Add a .him directory to your existing repository to declare how HIM runs your code and collects its outputs. Keep native commands and project structure. Published scores come only from the evaluator declared by the challenge.
+
+Install the CLI with `curl -fsSL https://arena.himrobotics.com/install.sh | sh` before running HIM commands.
+
+## Start
+- [HIM in one page](https://arena.himrobotics.com/docs/overview/raw): Build your way. Earn a shot on the real G1.
+- [Quickstart](https://arena.himrobotics.com/docs/quickstart/raw): Download the data, launch a machine, and share what you build.
+- [Use an SSH machine](https://arena.himrobotics.com/docs/ssh-machine/raw): Generate a key, connect safely, and start building with an agent.
+- [HIM Compute](https://arena.himrobotics.com/docs/compute/raw): Launch a flexible SSH machine. Use guided jobs when you need tighter controls.
+
+## Learn
+- [Robotics training, without the fog](https://arena.himrobotics.com/docs/robotics-training/raw): How inference, simulation, evaluation, training, and sim-to-real fit together.
+- [From private job to Arena](https://arena.himrobotics.com/docs/arena/raw): How comparison, evaluator trust, lineage, and the public learning loop work.
+
+## Workflows
+- [MuJoCo and MJX workflow](https://arena.himrobotics.com/docs/mujoco-mjx/raw): Package, run, evaluate, and compare a MuJoCo-family robotics workflow.
+- [Isaac Sim and Isaac Lab workflow](https://arena.himrobotics.com/docs/isaac-sim/raw): Prepare a headless Isaac workload and verify its requirements before the first run.
+- [Booster and Unitree workflows](https://arena.himrobotics.com/docs/booster-unitree/raw): Connect Booster or Unitree through a versioned robot adapter.
+- [Build a community challenge](https://arena.himrobotics.com/docs/community-challenges/raw): Package your simulator and evaluator, share the test, and keep its trust clear.
+
+## Advanced
+- [Bring an existing robotics repository](https://arena.himrobotics.com/docs/him-package/raw): Use a .him overlay without replacing the repository, simulator, trainer, or agent.
+- [CLI and Compute API](https://arena.himrobotics.com/docs/cli-api/raw): Launch SSH machines and manage private guided jobs programmatically.
+- [Set up HIM with a coding agent](https://arena.himrobotics.com/docs/ai-handoff/raw): Give Codex, Claude Code, Cursor, or another agent the exact setup task.
+- [Trust, failures, and operations](https://arena.himrobotics.com/docs/trust-operations/raw): Understand evidence labels, permissions, retries, and what to inspect when a job fails.
+
+## Machine-readable sources
+- [Full in-product documentation](https://arena.himrobotics.com/docs/llms-full.txt)
+- [HIM Package guide](https://arena.himrobotics.com/docs/him-package/raw)
+- [CLI and API guide](https://arena.himrobotics.com/docs/cli-api/raw)

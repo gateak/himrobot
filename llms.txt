@@ -1,0 +1,39 @@
+# himrobot
+
+> Humanoid table-tennis policy for HIM Arena on the Unitree G1 (29 DoF): human capture (Rokoko mocap, paddle IMU, Orbbec RGB-D) → retargeted robot motion, ball tracks, and stream alignment → a HIM package with a stdio policy server → (next) an RL controller trained with PACE on Isaac Lab.
+
+Everything HIM runs lives in `.him/`; native code lives in `sim/`, `training/`, `him_adapter/`, `scripts/`. Capture data is under `data/` (gitignored, real files, no symlinks); derived outputs under `work/` (gitignored). `docs/PROJECT_KNOWLEDGE.md` is the source of truth for decisions, numbers, and open questions.
+
+## Start
+- [README](README.md): What the project is, the three tracks (perception, movement, control), setup on macOS, and the commands to see the robot move.
+- [Project knowledge](docs/PROJECT_KNOWLEDGE.md): Status table, HIM platform mechanics, the robot, the data, retarget fidelity, perception, stream alignment, prior art, standing constraints.
+- [Training plan](docs/TRAINING_PLAN.md): Three-stage plan to train the table-tennis controller with PACE on Isaac Lab, with exit criteria, GPU hours, costs, and risks.
+
+## HIM package
+- [Package manifest](.him/him.yaml): Identity `himrobot@0.1.0`, entrypoint `python -m him_adapter.server`, tests, compatibility, security, licenses, publication policy.
+- [Runtime contract](.him/contracts/runtime.json): `robot.joint_position` → `robot.desired_joint_position`, float32[29] rad at 50 Hz; the 29 G1 joint names in Menagerie/Unitree-SDK order under `extensions.robot`.
+- [Retarget pipeline contract](.him/contracts/training-pipeline.json): `rokoko-to-g1-motion-tracking-v1` — five local CPU stages from FBX to a G1 preview video, runnable with `him pipeline run`.
+- [Native command references](.him/commands/README.md): Which script each pipeline stage runs and what it needs.
+
+## Code
+- [Policy server](him_adapter/server.py): Stdio JSON policy server HIM executes; `HoldPolicy` fallback, `BCPolicy` when a checkpoint is present.
+- [Retargeting pipeline](sim/gmr_bvh_to_g1_headless.py): Rokoko BVH → G1 29-DoF CSV via GMR with the repo-local IK config `sim/ik_configs/bvh_lafan1_rokoko_to_g1.json`.
+- [Retarget fidelity report](sim/retarget_report.py): Wrist error, joint-limit saturation, foot penetration for a retargeted clip.
+- [Playback and composite](sim/play_g1_csv.py): Play a retargeted clip in MuJoCo or render MP4; `sim/composite_g1_video.py` overlays the time-aligned G1 and the detected ball on the real footage.
+- [Perception](sim/ball_detect.py): Orange-ball detection on Orbbec colour frames; `sim/ball_3d.py` attaches aligned depth; `sim/aruco_scan.py` reads the table's ArUco corners.
+- [Stream alignment](sim/align_streams.py): Pairs IMU episodes, Orbbec sessions, and Rokoko clips; cross-correlates paddle gyro with hand speed; writes `work/alignment/session-map.json`.
+- [Training scaffold](training/README.md): PyTorch next-pose behaviour cloning on the retargeted G1 motion (a motion prior, not a controller), checkpoint format, deployment note.
+- [GPU box bootstrap](scripts/gpu_box_setup.sh): Idempotent Ubuntu 22.04 setup pinned to PACE's Isaac Sim 4.5.0 / Isaac Lab 2.1.0; `scripts/make_refs_tarball.sh` packs the reference data to upload.
+
+## Research
+- [Humanoid table-tennis survey](docs/research/humanoid-table-tennis-survey.md): Verified open-source landscape (HITTER, BeyondMimic, PACE, HOPE, SMASH, DeepMind) and the recommended build order.
+- [Survey verification](docs/research/humanoid-table-tennis-survey-verification.md): Every repo fetched; licences, dates, contents, corrections.
+
+## HIM platform docs (private preview, fetched 2026-08-27)
+- [HIM llms.txt](docs/him/llms.txt): HIM's own index of guides.
+- [Full HIM docs](docs/him/llms-full.txt): All in-product HIM documentation in one file.
+- [Quickstart](docs/him/quickstart.md): Data, SSH machines, build your way, share what you built.
+- [Bring an existing repository](docs/him/him-package.md): The `.him` overlay, package workflow, entrypoints, runtime names.
+- [CLI and Compute API](docs/him/cli-api.md): Tokens, SSH machines, job commands, versioned API endpoints and rules.
+- [HIM Compute](docs/him/compute.md): SSH vs guided jobs, what a completed job returns, using HIM's table-tennis data, common setup errors.
+- [Coding-agent handoff](docs/him/ai-handoff.md): The bounded setup prompt HIM gives to coding agents.
