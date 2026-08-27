@@ -10,6 +10,7 @@ import time
 import numpy as np
 import pytest
 
+torch = pytest.importorskip('torch')  # HIM's venv has no torch; these tests are RL-only
 from tt_sim.rl.ppo import train
 from tt_sim.rl.policy import PPOPolicy
 from tt_sim.scene import DEFAULT_PARAMS, TableTennisEnv

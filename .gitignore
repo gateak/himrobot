@@ -16,3 +16,4 @@ sim/*.mp4
 work/
 .him/runs/
 .him/.registry/
+.claude/

@@ -21,9 +21,12 @@ import torch
 
 from tt_sim import scene
 from tt_sim.policies.base import Policy
+from tt_sim.policies.ik_hitter import IKHitterPolicy
 from tt_sim.rl import ppo as ppo_mod
+from tt_sim.rl.demos import target_to_action
 from tt_sim.rl.env import ACT_DIM, flatten_obs, map_action
 from tt_sim.rl.nets import Actor
+from tt_sim.rl.residual import DEFAULT_RESIDUAL_SCALE, RESIDUAL_OBS_DIM, flatten_residual_obs
 
 DEFAULT_BC_CHECKPOINT = os.path.join(scene.REPO, "work", "tt", "rl", "bc_seed0.pt")
 
@@ -134,5 +137,75 @@ class PPOPolicy(Policy):
         obs_t = torch.as_tensor(norm, dtype=torch.float32, device=self.device)
         mean, _logp, _value = self.model.act(obs_t, deterministic=True)
         action = np.clip(mean.cpu().numpy()[0].astype(np.float64), -1.0, 1.0)
+        self._prev_action = action
+        return map_action(action, self._jnt_range)
+
+
+class ResidualPPOPolicy(Policy):
+    """Runs a tt_sim/rl/ppo.py `--residual` checkpoint: internally drives
+    its own tt_sim.policies.ik_hitter.IKHitterPolicy instance (the same
+    "expert" tt_sim.rl.residual.VecTTResidual wraps during training) to get
+    a_exp for the current obs, forwards the residual ActorCritic's mean
+    action a_rl on the same [flatten_obs(obs) ++ a_exp] 128-dim
+    (RESIDUAL_OBS_DIM) input tt_sim.rl.residual.flatten_residual_obs builds,
+    and combines them exactly as VecTTResidual.step does:
+    ``a = clip(a_exp + residual_scale * a_rl, -1, 1)`` -- before mapping to
+    an absolute joint-position target with tt_sim.rl.env.map_action, same
+    as PPOPolicy.
+
+    Zero-arg constructible for tt_sim.evaluate's `--policy
+    tt_sim.rl.policy:ResidualPPOPolicy` (see PPOPolicy's docstring on
+    TT_RL_CKPT). residual_scale defaults to whatever tt_sim/rl/ppo.py's
+    --residual training run recorded in the checkpoint
+    (ckpt["residual_scale"]; falls back to
+    tt_sim.rl.residual.DEFAULT_RESIDUAL_SCALE for a checkpoint that
+    doesn't carry one), or pass residual_scale=... to override.
+    """
+
+    def __init__(self, ckpt_path: str | None = None, residual_scale: float | None = None):
+        path = ckpt_path or os.environ.get("TT_RL_CKPT")
+        if not path:
+            raise ValueError(
+                "ResidualPPOPolicy needs a checkpoint: pass ckpt_path=... or set the "
+                "TT_RL_CKPT env var to a tt_sim/rl/ppo.py --residual checkpoint (e.g. "
+                "work/tt/rl/run/final.pt)."
+            )
+        self.device = ppo_mod.pick_device()
+        self.model, self.obs_rms = ppo_mod.load_checkpoint(path, self.device)
+        self.model.eval()
+        assert self.model.actor.obs_dim == RESIDUAL_OBS_DIM, (
+            f"{path!r} is a {self.model.actor.obs_dim}-dim checkpoint, not a --residual "
+            f"({RESIDUAL_OBS_DIM}-dim) one."
+        )
+        # weights_only=False: see ppo_mod.load_checkpoint's own comment; read a second
+        # time only to recover the plain-Python residual_scale metadata it doesn't return.
+        raw_ckpt = torch.load(path, map_location=self.device, weights_only=False)
+        self.residual_scale = float(
+            residual_scale if residual_scale is not None
+            else raw_ckpt.get("residual_scale", DEFAULT_RESIDUAL_SCALE)
+        )
+
+        self.hitter = IKHitterPolicy()
+        self._jnt_range = _compute_jnt_range()
+        self._target = _target_from_params(None)
+        self._prev_action = np.zeros(ACT_DIM, dtype=np.float64)
+
+    def reset(self, episode: dict) -> None:
+        self.hitter.reset(episode)
+        self._target = _target_from_params((episode or {}).get("params"))
+        self._prev_action = np.zeros(ACT_DIM, dtype=np.float64)
+
+    def act(self, obs: dict) -> np.ndarray:
+        expert_target = self.hitter.act(obs)
+        expert_action = target_to_action(expert_target)
+
+        base = flatten_obs(obs, self._prev_action, self._target, obs["time_s"])
+        flat = flatten_residual_obs(base, expert_action)
+        norm = self.obs_rms.normalize(flat[None, :].astype(np.float64))
+        obs_t = torch.as_tensor(norm, dtype=torch.float32, device=self.device)
+        mean, _logp, _value = self.model.act(obs_t, deterministic=True)
+        a_rl = mean.cpu().numpy()[0].astype(np.float64)
+
+        action = np.clip(expert_action + self.residual_scale * a_rl, -1.0, 1.0)
         self._prev_action = action
         return map_action(action, self._jnt_range)

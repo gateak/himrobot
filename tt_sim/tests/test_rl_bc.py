@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+torch = pytest.importorskip('torch')  # HIM's venv has no torch; these tests are RL-only
 from tt_sim.rl import bc as bc_mod
 from tt_sim.rl import demos as demos_mod
 from tt_sim.rl.env import ACT_DIM, OBS_DIM

@@ -9,7 +9,7 @@ ball.velocity*0.2[3], paddle.position[3], target[2], phase=time_s[1],
 prev_action[29]), and the recorded "action" is target_to_action's inverse
 of env.map_action -- the [-1,1]^29 action that, fed back through
 env.map_action, reproduces the IK hitter's actual absolute joint target as
-closely as ACTION_SCALE's 1.0 rad (waist/arms) / 0.0 rad (legs, frozen)
+closely as ACTION_SCALE's 3.0 rad (waist/arms) / 0.0 rad (legs, frozen)
 clip allows. This makes demos_seed0.npz directly usable by tt_sim/rl/bc.py
 (this package) and any future tt_sim/rl/ppo.py `--init-from` warm start,
 since both consume/produce actions in exactly VecTT's convention.

@@ -39,6 +39,7 @@ from torch.distributions import Normal
 
 from tt_sim.rl.env import ACT_DIM, OBS_DIM, VecTT
 from tt_sim.rl.nets import Actor
+from tt_sim.rl.residual import DEFAULT_RESIDUAL_SCALE, OBS_VERSION, RESIDUAL_OBS_DIM, VecTTResidual
 
 HIDDEN = 256
 GAMMA = 0.99
@@ -69,10 +70,11 @@ class ActorCritic(nn.Module):
     (bc.py's Actor has no value output). log_std is a free (act_dim,)
     parameter, state-independent, not a network output."""
 
-    def __init__(self, obs_dim: int = OBS_DIM, act_dim: int = ACT_DIM, hidden: int = HIDDEN):
+    def __init__(self, obs_dim: int = OBS_DIM, act_dim: int = ACT_DIM, hidden: int = HIDDEN,
+                 log_std_init: float = -0.5):
         super().__init__()
         self.actor = Actor(obs_dim, act_dim, hidden)
-        self.log_std = nn.Parameter(torch.full((act_dim,), -0.5))
+        self.log_std = nn.Parameter(torch.full((act_dim,), log_std_init))
         self.critic = nn.Sequential(
             nn.Linear(obs_dim, hidden), nn.Tanh(),
             nn.Linear(hidden, hidden), nn.Tanh(),
@@ -152,9 +154,9 @@ def compute_gae(rewards: np.ndarray, values: np.ndarray, dones: np.ndarray,
 
 
 def collect_rollout(vec: VecTT, model: ActorCritic, obs_rms: RunningMeanStd,
-                     rollout_steps: int, device: torch.device):
+                     rollout_steps: int, device: torch.device, obs_dim: int = OBS_DIM):
     n = vec.n_envs
-    obs_buf = np.zeros((rollout_steps, n, OBS_DIM), dtype=np.float32)
+    obs_buf = np.zeros((rollout_steps, n, obs_dim), dtype=np.float32)
     act_buf = np.zeros((rollout_steps, n, ACT_DIM), dtype=np.float32)
     logp_buf = np.zeros((rollout_steps, n), dtype=np.float32)
     rew_buf = np.zeros((rollout_steps, n), dtype=np.float32)
@@ -243,17 +245,20 @@ def ppo_update(model: ActorCritic, optimizer: torch.optim.Optimizer,
     return last
 
 
-def save_checkpoint(path: str, model: ActorCritic, obs_rms: RunningMeanStd, total_steps: int) -> None:
+def save_checkpoint(path: str, model: ActorCritic, obs_rms: RunningMeanStd, total_steps: int,
+                     obs_dim: int = OBS_DIM, act_dim: int = ACT_DIM, extra: dict | None = None) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save({
+    ckpt = {
         "model_state": model.state_dict(),
-        "obs_dim": OBS_DIM,
-        "act_dim": ACT_DIM,
+        "obs_dim": obs_dim,
+        "act_dim": act_dim,
         "obs_rms_mean": obs_rms.mean,
         "obs_rms_var": obs_rms.var,
         "obs_rms_count": obs_rms.count,
         "total_steps": total_steps,
-    }, path)
+    }
+    ckpt.update(extra or {})
+    torch.save(ckpt, path)
 
 
 def load_checkpoint(path: str, device: torch.device) -> tuple[ActorCritic, RunningMeanStd]:
@@ -286,15 +291,37 @@ def load_bc_actor_into(model: ActorCritic, bc_path: str, device: torch.device) -
 
 def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | None = None,
           minutes: float | None = None, eval_every_steps: int = 20_000,
-          rollout_steps: int = 128, params: dict | None = None) -> dict:
+          rollout_steps: int = 128, params: dict | None = None,
+          residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE) -> dict:
+    """residual=False reproduces the original (pre-residual) trainer
+    exactly -- same VecTT, OBS_DIM, log_std init (-0.5) and actor init.
+    residual=True instead builds a tt_sim.rl.residual.VecTTResidual (obs
+    widened to RESIDUAL_OBS_DIM=128, see that module), initializes
+    log_std to -1.6 (small noise -> step-zero behaviour close to the
+    wrapped IK-hitter expert's own action) and zero-inits the actor's
+    final Linear layer (weight+bias) so its tanh output -- the RL
+    residual a_rl -- is exactly 0 at step zero, before any gradient
+    update (VecTTResidual then sends exactly a_exp to the joints, per its
+    own docstring's `a = clip(a_exp + residual_scale * a_rl, -1, 1)`)."""
     os.makedirs(out, exist_ok=True)
     device = pick_device()
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    vec = VecTT(n_envs=n_envs, seed=seed, params=params or {})
-    model = ActorCritic(OBS_DIM, ACT_DIM).to(device)
-    obs_rms = RunningMeanStd((OBS_DIM,))
+    obs_dim = RESIDUAL_OBS_DIM if residual else OBS_DIM
+    if residual:
+        vec = VecTTResidual(n_envs=n_envs, seed=seed, params=params or {}, residual_scale=residual_scale)
+    else:
+        vec = VecTT(n_envs=n_envs, seed=seed, params=params or {})
+
+    log_std_init = -1.6 if residual else -0.5
+    model = ActorCritic(obs_dim, ACT_DIM, log_std_init=log_std_init).to(device)
+    if residual:
+        last_linear = model.actor.net[-2]  # net = [Linear, Tanh, Linear, Tanh, Linear, Tanh]
+        nn.init.zeros_(last_linear.weight)
+        nn.init.zeros_(last_linear.bias)
+    obs_rms = RunningMeanStd((obs_dim,))
+    ckpt_extra = {"obs_version": OBS_VERSION, "residual": True, "residual_scale": residual_scale} if residual else {}
     if init_from:
         load_bc_actor_into(model, init_from, device)
     model.train()
@@ -321,7 +348,7 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
                 break
 
             obs_buf, act_buf, logp_buf, rew_buf, val_buf, done_buf, last_value, episode_stats = \
-                collect_rollout(vec, model, obs_rms, rollout_steps, device)
+                collect_rollout(vec, model, obs_rms, rollout_steps, device, obs_dim=obs_dim)
             episode_window.extend(episode_stats)
             adv_buf, ret_buf = compute_gae(rew_buf, val_buf, done_buf, last_value)
             ppo_update(model, optimizer, obs_buf, act_buf, logp_buf, adv_buf, ret_buf, obs_rms, device)
@@ -347,13 +374,16 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
 
                 if len(episode_window) >= 20 and legal_rate > best_legal_rate:
                     best_legal_rate = legal_rate
-                    save_checkpoint(os.path.join(out, "best.pt"), model, obs_rms, total)
+                    save_checkpoint(os.path.join(out, "best.pt"), model, obs_rms, total,
+                                     obs_dim=obs_dim, act_dim=ACT_DIM, extra=ckpt_extra)
 
             if time.time() - last_ckpt_time >= CHECKPOINT_EVERY_S:
                 last_ckpt_time = time.time()
-                save_checkpoint(os.path.join(out, f"checkpoint_{total}.pt"), model, obs_rms, total)
+                save_checkpoint(os.path.join(out, f"checkpoint_{total}.pt"), model, obs_rms, total,
+                                 obs_dim=obs_dim, act_dim=ACT_DIM, extra=ckpt_extra)
     finally:
-        save_checkpoint(os.path.join(out, "final.pt"), model, obs_rms, total)
+        save_checkpoint(os.path.join(out, "final.pt"), model, obs_rms, total,
+                         obs_dim=obs_dim, act_dim=ACT_DIM, extra=ckpt_extra)
         csv_fh.close()
 
     return {"total_steps": total, "n_updates": n_updates, "out": out, "csv": csv_path,
@@ -371,12 +401,18 @@ def main(argv=None) -> dict:
     parser.add_argument("--eval-every-steps", type=int, default=20_000)
     parser.add_argument("--rollout-steps", type=int, default=128, help="per-env steps collected per PPO update")
     parser.add_argument("--params", type=str, default="{}", help="JSON dict merged over tt_sim.scene.DEFAULT_PARAMS")
+    parser.add_argument("--residual", action="store_true",
+                         help="train a residual policy over tt_sim.policies.ik_hitter.IKHitterPolicy "
+                              "(tt_sim.rl.residual.VecTTResidual) instead of learning from scratch")
+    parser.add_argument("--residual-scale", type=float, default=DEFAULT_RESIDUAL_SCALE,
+                         help="a = clip(a_exp + residual_scale * a_rl, -1, 1); only used with --residual")
     args = parser.parse_args(argv)
 
     result = train(
         n_envs=args.n_envs, total_steps=args.total_steps, seed=args.seed, out=args.out,
         init_from=args.init_from, minutes=args.minutes, eval_every_steps=args.eval_every_steps,
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
+        residual=args.residual, residual_scale=args.residual_scale,
     )
     print(json.dumps(result, indent=2))
     return result
