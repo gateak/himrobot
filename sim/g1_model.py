@@ -40,21 +40,29 @@ PADDLE_XML = """
 """
 _MARKER = 'mesh="right_rubber_hand"/>'  # last geom inside right_wrist_yaw_link
 
+# A "fake board" for visual context: table-tennis table + center line + net.
+TABLE_XML = """
+    <geom name="tt_table" type="box" pos="1.35 0 0.735" size="1.37 0.7625 0.025" rgba="0.12 0.35 0.60 1" contype="0" conaffinity="0"/>
+    <geom name="tt_centerline" type="box" pos="1.35 0 0.761" size="1.37 0.01 0.001" rgba="1 1 1 1" contype="0" conaffinity="0"/>
+    <geom name="tt_net" type="box" pos="1.35 0 0.820" size="0.006 0.7625 0.075" rgba="0.9 0.9 0.9 0.5" contype="0" conaffinity="0"/>
+"""
 
-def _xml_with_paddle() -> str:
+
+def _build_xml(paddle: bool, table: bool) -> str:
     with open(G1_XML) as fh:
         text = fh.read()
     text = text.replace('meshdir="assets"', f'meshdir="{MESHDIR}"')
-    if _MARKER not in text:
-        raise RuntimeError("paddle-injection marker not found; vendored G1 XML changed?")
-    return text.replace(_MARKER, _MARKER + "\n" + PADDLE_XML, 1)
-
-
-def load(paddle: bool = True):
     if paddle:
-        model = mujoco.MjModel.from_xml_string(_xml_with_paddle())
-    else:
-        model = mujoco.MjModel.from_xml_path(G1_XML)
+        if _MARKER not in text:
+            raise RuntimeError("paddle-injection marker not found; vendored G1 XML changed?")
+        text = text.replace(_MARKER, _MARKER + "\n" + PADDLE_XML, 1)
+    if table:
+        text = text.replace("<worldbody>", "<worldbody>\n" + TABLE_XML, 1)
+    return text
+
+
+def load(paddle: bool = True, table: bool = False):
+    model = mujoco.MjModel.from_xml_string(_build_xml(paddle, table))
     data = mujoco.MjData(model)
     # Stand at the built-in "stand" keyframe if present.
     kid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "stand")

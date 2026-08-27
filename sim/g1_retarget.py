@@ -16,6 +16,8 @@ import argparse
 import os
 import sys
 
+import math
+
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -51,6 +53,9 @@ def main():
     ap.add_argument("--fps", type=int, default=20)
     ap.add_argument("--iters", type=int, default=80)
     ap.add_argument("--damping", type=float, default=0.1)
+    ap.add_argument("--base-yaw", type=float, default=35.0,
+                    help="rotate the robot body (deg about vertical) so the swing faces the board")
+    ap.add_argument("--no-table", action="store_true", help="hide the fake table board")
     args = ap.parse_args()
 
     import imageio
@@ -72,7 +77,13 @@ def main():
     # Human arm length (upper + fore), averaged over the clip.
     L_h = float(np.mean(np.linalg.norm(el_h - sh_h, axis=1) + np.linalg.norm(wr_h - el_h, axis=1)))
 
-    model, data = g1_model.load(paddle=True)
+    model, data = g1_model.load(paddle=True, table=not args.no_table)
+    # Angle the body about vertical so the swing plane faces the board.
+    yaw = math.radians(args.base_yaw)
+    data.qpos[3:7] = [math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)]
+    mujoco.mj_forward(model, data)
+    cz, sz = math.cos(yaw), math.sin(yaw)
+    R_base = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
     bid = {k: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, v) for k, v in
            dict(sh=g1_model.SHOULDER_BODY, el=g1_model.ELBOW_BODY, wr=g1_model.HAND_BODY).items()}
     qadr = np.array([int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)])
@@ -89,32 +100,55 @@ def main():
     scale = L_r / L_h
     print(f"human arm {L_h:.3f} m, robot arm {L_r:.3f} m, scale {scale:.3f}")
 
-    cam = mujoco.MjvCamera(); cam.azimuth = 140; cam.elevation = -8; cam.distance = 2.3
-    cam.lookat[:] = [0.15, -0.15, 0.95]
+    cam = mujoco.MjvCamera(); cam.azimuth = 150; cam.elevation = -10; cam.distance = 3.0
+    cam.lookat[:] = [0.7, 0.0, 0.85]
     renderer = mujoco.Renderer(model, height=420, width=560)
-    jacp = np.zeros((3, model.nv)); jacr = np.zeros((3, model.nv))
+    jacp = np.zeros((3, model.nv)); jacp2 = np.zeros((3, model.nv)); jacr = np.zeros((3, model.nv))
+    W_EL = 0.6   # elbow weight (posture); the wrist stays the primary target
+
+    def to_robot(human_pt, k):
+        """Human landmark -> robot-frame target, scaled and body-angled."""
+        return S_r + R_base @ (scale * human_to_robot(R_h_all[k].T @ (human_pt - sh_h[k])))
+
+    R_h_all = [torso_frame(hips[k], spine[k], sh_h[k]) for k in range(len(wr_h))]
+    wt_all, et_all = [], []
+    for k in range(len(wr_h)):
+        wt = to_robot(wr_h[k], k)                       # wrist target
+        rr = np.linalg.norm(wt - S_r)                   # keep the wrist inside reach
+        if rr > 0.97 * L_r:
+            wt = S_r + (wt - S_r) * (0.97 * L_r / rr)
+        wt_all.append(wt)
+        et_all.append(to_robot(el_h[k], k))             # elbow target (fixes arm posture)
+    wt_all, et_all = np.array(wt_all), np.array(et_all)
+
+    # Drop the fake board to just under the swing's lowest point so the paddle
+    # sweeps above it (kinematic preview has no collision -> would else clip through).
+    if not args.no_table:
+        delta = (float(wt_all[:, 2].min()) - 0.12) - 0.76
+        for gname in ("tt_table", "tt_centerline", "tt_net"):
+            gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, gname)
+            if gid >= 0:
+                model.geom_pos[gid][2] += delta
 
     frames, errs = [], []
     for k in range(len(wr_h)):
-        R_h = torso_frame(hips[k], spine[k], sh_h[k])
-        v = R_h.T @ (wr_h[k] - sh_h[k])                # wrist rel shoulder, torso coords
-        target = S_r + scale * human_to_robot(v)
-        reach = np.linalg.norm(target - S_r)           # keep inside the robot's reach
-        if reach > 0.97 * L_r:
-            target = S_r + (target - S_r) * (0.97 * L_r / reach)
+        wt, et = wt_all[k], et_all[k]
         for _ in range(args.iters):
             mujoco.mj_forward(model, data)
-            err = target - data.xpos[bid["wr"]]
             mujoco.mj_jacBody(model, data, jacp, jacr, bid["wr"])
-            J = jacp[:, dadr]                                          # 3x7
-            Jpinv = J.T @ np.linalg.inv(J @ J.T + (args.damping ** 2) * np.eye(3))
+            mujoco.mj_jacBody(model, data, jacp2, jacr, bid["el"])
+            ew = wt - data.xpos[bid["wr"]]
+            ee = et - data.xpos[bid["el"]]
+            J = np.vstack([jacp[:, dadr], W_EL * jacp2[:, dadr]])       # 6x7 (wrist + elbow)
+            err = np.concatenate([ew, W_EL * ee])
+            Jpinv = J.T @ np.linalg.inv(J @ J.T + (args.damping ** 2) * np.eye(6))
             qcur = data.qpos[qadr]
-            dq = Jpinv @ err + (np.eye(7) - Jpinv @ J) @ (0.3 * (q_home - qcur))
+            dq = Jpinv @ err + (np.eye(7) - Jpinv @ J) @ (0.2 * (q_home - qcur))
             nrm = np.linalg.norm(dq)
             if nrm > 0.25:
                 dq *= 0.25 / nrm
             data.qpos[qadr] = np.clip(qcur + dq, jrng[:, 0], jrng[:, 1])
-        errs.append(np.linalg.norm(err) * 100)         # cm
+        errs.append(np.linalg.norm(ew) * 100)           # wrist error, cm
         renderer.update_scene(data, camera=cam)
         frames.append(renderer.render())
 
