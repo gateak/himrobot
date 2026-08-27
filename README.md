@@ -1,7 +1,8 @@
 # himrobot — humanoid table-tennis policy (HIM Arena)
 
-Work toward a table-tennis policy for HIM Arena, built on the **Unitree G1**
-humanoid. Per HIM (the dataset owner): *"We built the capture rig and recorded
+This repository contains work toward a table-tennis policy for HIM Arena. The
+policy uses the **Unitree G1** humanoid robot. HIM is the source of the
+dataset. HIM tells us this: *"We built the capture rig and recorded
 the data ourselves. Use it to train perception, movement, and control policies
 for humanoid table tennis."*
 
@@ -46,11 +47,14 @@ python3.12 -m venv .venv           # /usr/local/bin/python3.12 on this machine
 ./scripts/fetch_assets.sh          # K1 (booster_assets) + sparse mujoco_menagerie/unitree_g1 -> third_party/
 ```
 
-`data/` is gitignored and holds symlinks to the licensed capture on this
-machine (`~/him-data/...`; `data/g1` → `work/g1`, the corrected retargeted G1 CSVs);
-see `docs/PROJECT_KNOWLEDGE.md` §3 for the exact layout. Reading the FBX mocap
-needs the Blender binary (5.2.1 LTS at `/Applications/Blender.app`, ships its own
-Python + numpy) — no `bpy` wheel or side-venv.
+Git does not track `data/`. This folder contains symlinks to the licensed
+capture on this machine, at `~/him-data/...`. The symlink `data/g1` points to
+`work/g1`, the corrected, retargeted G1 CSV files. `docs/PROJECT_KNOWLEDGE.md`,
+§3, gives the exact layout.
+
+The Blender binary (version 5.2.1 LTS, at `/Applications/Blender.app`) is
+necessary to read the FBX mocap. This copy of Blender includes Python and
+numpy. A `bpy` wheel or a different venv is not necessary.
 
 ## Try it
 
@@ -72,34 +76,42 @@ $BLENDER -b --python sim/fbx_extract.py -- data/rokoko-motion-capture/Clip_4.fbx
 
 ## The robot
 
-**Current target: Unitree G1** (29-DOF humanoid, 7-DOF arm *with wrist* — from
+This project uses the **Unitree G1** as the target robot (29-DOF humanoid,
+7-DOF arm *with wrist*, from
 [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)). The
-7-DoF arm lets the retarget place the wrist: with the corrected IK config the
-mean wrist error is ~10–12 cm per clip, versus 50–69 cm (and 23–31 % of
-joint-frames at IK limits) with the upstream offsets
-(`work/retarget/adjust2_rotfix_h1p75.md`). That is a kinematic measure only —
-nothing has been checked for dynamic feasibility.
+7-DoF arm lets the retarget place the wrist. With the corrected IK config, the
+mean wrist error is approximately 10–12 cm for each clip. With the upstream
+offsets, the mean wrist error is 50–69 cm, and 23–31 % of joint-frames are at
+IK limits (`work/retarget/adjust2_rotfix_h1p75.md`). This measurement is only
+kinematic. A check of dynamic feasibility is necessary.
 
-Earlier reference: HIM's "Adam" = the public **Booster K1** (BSD-3-Clause,
-[booster_assets](https://github.com/BoosterRobotics/booster_assets)), 22 joints.
-The runtime contract (`.him/contracts/runtime.json`) is bound to the G1's 29
-joints in Menagerie/Unitree-SDK order (`extensions.robot.joint_order`).
+The previous target robot was HIM's "Adam," the open-source **Booster K1**
+(BSD-3-Clause license,
+[booster_assets](https://github.com/BoosterRobotics/booster_assets)), 22
+joints. The runtime contract (`.him/contracts/runtime.json`) uses the G1's 29
+joints, in Menagerie and Unitree-SDK order (`extensions.robot.joint_order`).
 
 ## Not in this repo (gitignored)
 
-- `data/` — HIM's proprietary licensed capture (paddle IMU + Orbbec RGB-D + Rokoko mocap + the verified release tars), kept as real files inside the repo folder. Not redistributed.
-- `third_party/` — vendored Booster assets; re-fetch with `scripts/fetch_assets.sh`.
+- `data/` — HIM's licensed capture data (paddle IMU, Orbbec RGB-D, Rokoko
+  mocap, and the verified release tars). This data is on disk inside the
+  repository folder. This repository does not redistribute the data.
+- `third_party/` — vendored Booster assets. `scripts/fetch_assets.sh` fetches
+  them again.
 - `models/`, `*.pt`, `sim/*.gif` — generated artifacts.
 
 ## Honest caveats
 
-- The contract keeps the HIM template's signal names / 50 Hz clock; HIM's Adam
-  manifest uses different names @ 60 Hz. **Reconcile with HIM before deploying** —
-  the wire format the server-side evaluator expects is not confirmed.
-- The retarget is kinematic (poses only, no dynamics/balance); the older
-  `sim/retarget_imu.py` uses only paddle orientation and is not world-calibrated.
-- The three capture streams were recorded on separate clocks; IMU↔Rokoko↔Orbbec
-  alignment is done for the sessions on disk (PROJECT_KNOWLEDGE.md §6b) and still
-  open for the six Orbbec rally sessions whose tars failed to download.
-- HIM's hosted simulation/execution is gated server-side (per-package worker);
-  local MuJoCo here is the un-gated way to see the robot move.
+- The contract keeps the HIM template's signal names and its 50 Hz clock.
+  HIM's Adam manifest uses different names, at 60 Hz. **Agree with HIM on the
+  correct format before you deploy the policy.** No one knows the wire format
+  that the server-side evaluator must use.
+- The retarget is kinematic. It gives only poses, not dynamics or balance. The
+  `sim/retarget_imu.py` script is a previous version. It uses only paddle
+  orientation, and it is not world-calibrated.
+- HIM recorded the three capture streams on different clocks. The team aligned
+  the IMU, Rokoko, and Orbbec streams for all eight Orbbec sessions on disk
+  (PROJECT_KNOWLEDGE.md §6b).
+- A per-package worker on the HIM side gates HIM's hosted simulation and
+  execution. The local MuJoCo tool here is the un-gated procedure to see the
+  robot move.
