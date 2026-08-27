@@ -15,7 +15,7 @@ pass ``--intrinsics k.json`` ({"fx":..,"fy":..,"cx":..,"cy":..}) and X, Y, Z
 (metres, camera frame) are added.
 
     ~/him-tools/cv-venv/bin/python sim/ball_3d.py \\
-        --session ~/him-data/orbbec_20260815_215350 --cam cam0
+        --session data/orbbec_20260815_215350 --cam cam0
 """
 from __future__ import annotations
 

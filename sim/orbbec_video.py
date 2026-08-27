@@ -2,7 +2,7 @@
 watch the raw capture. Works on an extracted session directory or the tar.
 
     ~/him-tools/cv-venv/bin/python sim/orbbec_video.py \\
-        --session ~/him-data/orbbec_20260815_215350 --cam cam0 --fps 0
+        --session data/orbbec_20260815_215350 --cam cam0 --fps 0
 ``--fps 0`` = real-time playback from the host timestamps (median frame gap);
 frames are written as-is, so dropped frames are not re-timed.
 """

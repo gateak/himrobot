@@ -6,7 +6,7 @@ and reports which dictionary fires, which marker IDs, and the pixel corners
 calibration input later). Writes a JSON summary and annotated PNGs.
 
     ~/him-tools/cv-venv/bin/python sim/aruco_scan.py \\
-        --session ~/him-data/orbbec_20260815_215350 --frames 12
+        --session data/orbbec_20260815_215350 --frames 12
 """
 from __future__ import annotations
 

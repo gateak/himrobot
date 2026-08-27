@@ -15,11 +15,11 @@ Outputs: per-frame detection stats, a CSV 2D track
 and annotated sample frames. Depth lookup is ``sim/ball_3d.py``.
 
     ~/him-tools/cv-venv/bin/python sim/ball_detect.py \\
-        --session ~/him-data/orbbec_20260815_215350 --cam cam0 --motion 8 \\
+        --session data/orbbec_20260815_215350 --cam cam0 --motion 8 \\
         --roi-json work/perception/aruco_orbbec_20260815_215350.json \\
         --static-reject 0.2 --near-big 12
     ~/him-tools/cv-venv/bin/python sim/ball_detect.py \\
-        --session ~/Downloads/orbbec_20260815_215350.tar --cam cam1_CP0E8530008F
+        --session data/release/orbbec_20260815_215350.tar --cam cam1_CP0E8530008F
 """
 from __future__ import annotations
 
