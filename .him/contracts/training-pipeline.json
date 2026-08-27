@@ -353,7 +353,7 @@
     "upstream": {
       "retargeting": "YanjieZe/GMR (MIT)",
       "robot_model": "google-deepmind/mujoco_menagerie unitree_g1 (BSD-3)",
-      "fbx_import": "Blender 3.4.1"
+      "fbx_import": "Blender 5.2.1 LTS (3.4.1 verified equivalent)"
     },
     "machine_specific_parameters": {
       "parameters": [

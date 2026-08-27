@@ -49,7 +49,7 @@ python3.12 -m venv .venv           # /usr/local/bin/python3.12 on this machine
 `data/` is gitignored and holds symlinks to the licensed capture on this
 machine (`~/him-data/...`; `data/g1` → `work/g1`, the corrected retargeted G1 CSVs);
 see `docs/PROJECT_KNOWLEDGE.md` §3 for the exact layout. Reading the FBX mocap
-needs the Blender binary (3.4.1 at `/Applications/Blender.app`, ships its own
+needs the Blender binary (5.2.1 LTS at `/Applications/Blender.app`, ships its own
 Python + numpy) — no `bpy` wheel or side-venv.
 
 ## Try it
