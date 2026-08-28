@@ -38,6 +38,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 from tt_sim.rl.env import ACT_DIM, OBS_DIM, VecTT
+from tt_sim.rl.env import obs_dim as env_obs_dim
 from tt_sim.rl.nets import Actor
 from tt_sim.rl.residual import DEFAULT_RESIDUAL_SCALE, OBS_VERSION, RESIDUAL_OBS_DIM, VecTTResidual
 
@@ -292,7 +293,8 @@ def load_bc_actor_into(model: ActorCritic, bc_path: str, device: torch.device) -
 def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | None = None,
           minutes: float | None = None, eval_every_steps: int = 20_000,
           rollout_steps: int = 128, params: dict | None = None,
-          residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE) -> dict:
+          residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE,
+          intercept_features: bool = False, intercept_reward: float = 0.0) -> dict:
     """residual=False reproduces the original (pre-residual) trainer
     exactly -- same VecTT, OBS_DIM, log_std init (-0.5) and actor init.
     residual=True instead builds a tt_sim.rl.residual.VecTTResidual (obs
@@ -308,11 +310,14 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    obs_dim = RESIDUAL_OBS_DIM if residual else OBS_DIM
+    if residual and (intercept_features or intercept_reward > 0.0):
+        raise NotImplementedError("--intercept-features/--intercept-reward do not compose with --residual yet")
+    obs_dim = RESIDUAL_OBS_DIM if residual else env_obs_dim(intercept_features=intercept_features)
     if residual:
         vec = VecTTResidual(n_envs=n_envs, seed=seed, params=params or {}, residual_scale=residual_scale)
     else:
-        vec = VecTT(n_envs=n_envs, seed=seed, params=params or {})
+        vec = VecTT(n_envs=n_envs, seed=seed, params=params or {},
+                    intercept_features=intercept_features, intercept_reward=intercept_reward)
 
     log_std_init = -1.6 if residual else -0.5
     model = ActorCritic(obs_dim, ACT_DIM, log_std_init=log_std_init).to(device)
@@ -321,7 +326,8 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
         nn.init.zeros_(last_linear.weight)
         nn.init.zeros_(last_linear.bias)
     obs_rms = RunningMeanStd((obs_dim,))
-    ckpt_extra = {"obs_version": OBS_VERSION, "residual": True, "residual_scale": residual_scale} if residual else {}
+    ckpt_extra = ({"obs_version": OBS_VERSION, "residual": True, "residual_scale": residual_scale} if residual
+                  else {"intercept_features": intercept_features, "intercept_reward": intercept_reward})
     if init_from:
         load_bc_actor_into(model, init_from, device)
     model.train()
@@ -406,13 +412,15 @@ def main(argv=None) -> dict:
                               "(tt_sim.rl.residual.VecTTResidual) instead of learning from scratch")
     parser.add_argument("--residual-scale", type=float, default=DEFAULT_RESIDUAL_SCALE,
                          help="a = clip(a_exp + residual_scale * a_rl, -1, 1); only used with --residual")
+    parser.add_argument("--intercept-features", action="store_true", help="append the 8-dim predicted-intercept block to the observation (non-residual only)")
+    parser.add_argument("--intercept-reward", type=float, default=0.0, help="dense per-step penalty weight on |paddle - predicted intercept| before contact (non-residual only)")
     args = parser.parse_args(argv)
 
     result = train(
         n_envs=args.n_envs, total_steps=args.total_steps, seed=args.seed, out=args.out,
         init_from=args.init_from, minutes=args.minutes, eval_every_steps=args.eval_every_steps,
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
-        residual=args.residual, residual_scale=args.residual_scale,
+        residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward,
     )
     print(json.dumps(result, indent=2))
     return result
