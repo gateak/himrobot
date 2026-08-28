@@ -29,6 +29,7 @@ import importlib
 import json
 import math
 import os
+import sys
 import time
 
 import numpy as np
@@ -243,8 +244,12 @@ def main(argv: list[str] | None = None) -> dict:
         for k in range(args.trials):
             recorder = None
             if args.video:
-                from tt_sim.media import TrialRecorder
-                recorder = TrialRecorder(env.model)
+                try:
+                    from tt_sim.media import TrialRecorder
+                    recorder = TrialRecorder(env.model)
+                except Exception as exc:  # no GL on this host: keep scoring, skip video
+                    print(f"[evaluate] video disabled: {exc!r}", file=sys.stderr)
+                    recorder = None
 
             result = run_trial(
                 env, policy, k, args.trials, args.seed + k, target, traj_fh,
@@ -255,8 +260,11 @@ def main(argv: list[str] | None = None) -> dict:
 
             if recorder is not None:
                 trial_path = os.path.join(media_dir, f"trial_{k}.mp4")
-                recorder.write(trial_path)
-                recorder.close()
+                try:
+                    recorder.write(trial_path)
+                    recorder.close()
+                except Exception as exc:
+                    print(f"[evaluate] trial video failed: {exc!r}", file=sys.stderr)
                 trial_video_paths.append(trial_path)
 
     metrics = aggregate_metrics(per_trial, args.trials)
@@ -280,8 +288,11 @@ def main(argv: list[str] | None = None) -> dict:
         json.dump(_json_safe(evaluator_doc), fh, indent=2)
 
     if args.video and trial_video_paths:
-        from tt_sim.media import concat_videos
-        concat_videos(trial_video_paths, os.path.join(media_dir, "summary.mp4"))
+        try:
+            from tt_sim.media import concat_videos
+            concat_videos(trial_video_paths, os.path.join(media_dir, "summary.mp4"))
+        except Exception as exc:
+            print(f"[evaluate] summary video failed: {exc!r}", file=sys.stderr)
 
     print(json.dumps(metrics, indent=2))
     return metrics
