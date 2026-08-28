@@ -295,7 +295,7 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
           rollout_steps: int = 128, params: dict | None = None,
           residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE,
           intercept_features: bool = False, intercept_reward: float = 0.0,
-          vel_penalty: float = 0.0005, legal_bonus: float = 5.0) -> dict:
+          vel_penalty: float = 0.0005, legal_bonus: float = 5.0, resume_from: str | None = None) -> dict:
     """residual=False reproduces the original (pre-residual) trainer
     exactly -- same VecTT, OBS_DIM, log_std init (-0.5) and actor init.
     residual=True instead builds a tt_sim.rl.residual.VecTTResidual (obs
@@ -329,6 +329,15 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
         nn.init.zeros_(last_linear.weight)
         nn.init.zeros_(last_linear.bias)
     obs_rms = RunningMeanStd((obs_dim,))
+    if resume_from:
+        # Continue a PPO run: actor, critic, log_std and the obs-normalizer stats all come from the checkpoint.
+        ck = torch.load(resume_from, map_location=device, weights_only=False)
+        if ck['obs_dim'] != obs_dim:
+            raise ValueError(f"--resume-from obs_dim {ck['obs_dim']} != {obs_dim}")
+        model.load_state_dict(ck['model_state'])
+        obs_rms.mean = np.asarray(ck['obs_rms_mean'], dtype=np.float64)
+        obs_rms.var = np.asarray(ck['obs_rms_var'], dtype=np.float64)
+        obs_rms.count = ck['obs_rms_count']
     ckpt_extra = ({"obs_version": OBS_VERSION, "residual": True, "residual_scale": residual_scale} if residual
                   else {"intercept_features": intercept_features, "intercept_reward": intercept_reward})
     if init_from:
@@ -415,6 +424,7 @@ def main(argv=None) -> dict:
                               "(tt_sim.rl.residual.VecTTResidual) instead of learning from scratch")
     parser.add_argument("--residual-scale", type=float, default=DEFAULT_RESIDUAL_SCALE,
                          help="a = clip(a_exp + residual_scale * a_rl, -1, 1); only used with --residual")
+    parser.add_argument("--resume-from", type=str, default=None, help="continue from a tt_sim.rl.ppo checkpoint (weights + obs normalizer)")
     parser.add_argument("--vel-penalty", type=float, default=0.0005, help="per-step weight on sum(joint_velocity^2)")
     parser.add_argument("--legal-bonus", type=float, default=5.0, help="one-off reward for a legal return")
     parser.add_argument("--intercept-features", action="store_true", help="append the 8-dim predicted-intercept block to the observation (non-residual only)")
@@ -425,7 +435,7 @@ def main(argv=None) -> dict:
         n_envs=args.n_envs, total_steps=args.total_steps, seed=args.seed, out=args.out,
         init_from=args.init_from, minutes=args.minutes, eval_every_steps=args.eval_every_steps,
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
-        residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward, vel_penalty=args.vel_penalty, legal_bonus=args.legal_bonus,
+        residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward, vel_penalty=args.vel_penalty, legal_bonus=args.legal_bonus, resume_from=args.resume_from,
     )
     print(json.dumps(result, indent=2))
     return result
