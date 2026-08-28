@@ -17,11 +17,3 @@ work/
 .him/runs/
 .him/.registry/
 .claude/
-# Vendored Unitree G1 model (BSD-3-Clause, google-deepmind/mujoco_menagerie): needed by tt_sim on HIM's worker
-!third_party/
-third_party/*
-!third_party/mujoco_menagerie/
-third_party/mujoco_menagerie/*
-!third_party/mujoco_menagerie/unitree_g1/
-third_party/mujoco_menagerie/unitree_g1/*.png
-third_party/mujoco_menagerie/.git/

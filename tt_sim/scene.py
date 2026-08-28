@@ -28,8 +28,11 @@ import mujoco
 import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-G1_XML = os.path.join(REPO, "third_party/mujoco_menagerie/unitree_g1/g1.xml")
-MESHDIR = os.path.join(REPO, "third_party/mujoco_menagerie/unitree_g1/assets")
+# Vendored copy (assets/unitree_g1, BSD-3-Clause, google-deepmind/mujoco_menagerie) ships with the HIM package;
+# the sparse checkout under third_party/ is the developer fallback.
+_G1_DIR = next((d for d in (os.path.join(REPO, "assets", "unitree_g1"), os.path.join(REPO, "third_party", "mujoco_menagerie", "unitree_g1")) if os.path.isfile(os.path.join(d, "g1.xml"))), os.path.join(REPO, "assets", "unitree_g1"))
+G1_XML = os.path.join(_G1_DIR, "g1.xml")
+MESHDIR = os.path.join(_G1_DIR, "assets")
 
 # ---------------------------------------------------------------------------
 # Table-tennis facts (ITTF regulation dimensions, as given to this task).
