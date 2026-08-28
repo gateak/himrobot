@@ -197,6 +197,31 @@ def collect_rollout(vec: VecTT, model: ActorCritic, obs_rms: RunningMeanStd,
     return obs_buf, act_buf, logp_buf, rew_buf, val_buf, done_buf, last_value, episode_stats
 
 
+def deterministic_eval(vec_eval, model: ActorCritic, obs_rms: RunningMeanStd, device: torch.device,
+                       max_steps: int = 600) -> tuple[float, float]:
+    """Mean-action legal/contact rate (%) over one episode per env of a fixed-serve env.
+    This is the number the evaluator scores; the noisy train-time rate is not (v4 box: it rose
+    22->31% while the deterministic rate fell 53->35%). obs_rms is read, never updated."""
+    n = vec_eval.n_envs
+    done_once = np.zeros(n, dtype=bool)
+    legal = np.zeros(n, dtype=bool)
+    contact = np.zeros(n, dtype=bool)
+    obs = vec_eval.reset()
+    for _ in range(max_steps):
+        obs_t = torch.as_tensor(obs_rms.normalize(obs), dtype=torch.float32, device=device)
+        action_t, _, _ = model.act(obs_t, deterministic=True)
+        obs, _, _, infos = vec_eval.step(np.clip(action_t.cpu().numpy(), -1.0, 1.0))
+        for i, info in enumerate(infos):
+            if "episode" in info and not done_once[i]:
+                done_once[i] = True
+                legal[i] = bool(info["episode"]["legal_return"])
+                contact[i] = bool(info["episode"]["contact"])
+        if done_once.all():
+            break
+    k = max(int(done_once.sum()), 1)
+    return 100.0 * float(legal.sum()) / k, 100.0 * float(contact.sum()) / k
+
+
 def ppo_update(model: ActorCritic, optimizer: torch.optim.Optimizer,
                 obs_buf: np.ndarray, act_buf: np.ndarray, logp_buf: np.ndarray,
                 adv_buf: np.ndarray, ret_buf: np.ndarray, obs_rms: RunningMeanStd,
@@ -296,7 +321,9 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
           residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE,
           intercept_features: bool = False, intercept_reward: float = 0.0,
           vel_penalty: float = 0.0005, legal_bonus: float = 5.0, resume_from: str | None = None,
-          obs_delay_steps: int = 0, obs_noise: float = 0.0, joint_noise: float = 0.0) -> dict:
+          obs_delay_steps: int = 0, obs_noise: float = 0.0, joint_noise: float = 0.0,
+          det_eval_episodes: int = 0, log_std_init: float | None = None,
+          log_std_final: float | None = None) -> dict:
     """residual=False reproduces the original (pre-residual) trainer
     exactly -- same VecTT, OBS_DIM, log_std init (-0.5) and actor init.
     residual=True instead builds a tt_sim.rl.residual.VecTTResidual (obs
@@ -329,7 +356,8 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
                     vel_penalty=vel_penalty, legal_bonus=legal_bonus,
                     obs_delay_steps=obs_delay_steps, obs_noise=obs_noise, joint_noise=joint_noise)
 
-    log_std_init = -1.6 if residual else -0.5
+    if log_std_init is None:
+        log_std_init = -1.6 if residual else -0.5
     model = ActorCritic(obs_dim, ACT_DIM, log_std_init=log_std_init).to(device)
     if residual:
         last_linear = model.actor.net[-2]  # net = [Linear, Tanh, Linear, Tanh, Linear, Tanh]
@@ -358,7 +386,20 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
     csv_path = os.path.join(out, "train_log.csv")
     csv_fh = open(csv_path, "w", newline="")
     writer = csv.writer(csv_fh)
-    writer.writerow(["step", "wall_s", "mean_return", "legal_return_rate", "contact_rate", "ep_len"])
+    writer.writerow(["step", "wall_s", "mean_return", "legal_return_rate", "contact_rate", "ep_len",
+                     "det_legal_rate", "det_contact_rate"])
+    vec_eval = None
+    if det_eval_episodes > 0:
+        # Fixed serves, nominal physics, no obs noise: the same conditions the evaluator scores under.
+        eval_params = {**(params or {}), "physics_jitter": 0.0}
+        if residual:
+            vec_eval = VecTTResidual(n_envs=det_eval_episodes, seed=seed + 12345, params=eval_params,
+                                     randomize=False, residual_scale=residual_scale, obs_delay_steps=obs_delay_steps,
+                                     vel_penalty=vel_penalty, legal_bonus=legal_bonus)
+        else:
+            vec_eval = VecTT(n_envs=det_eval_episodes, seed=seed + 12345, params=eval_params, randomize=False,
+                             intercept_features=intercept_features, intercept_reward=intercept_reward,
+                             vel_penalty=vel_penalty, legal_bonus=legal_bonus, obs_delay_steps=obs_delay_steps)
     csv_fh.flush()
 
     episode_window: deque = deque(maxlen=EPISODE_WINDOW)
@@ -383,6 +424,14 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
 
             total += rollout_steps * n_envs
             n_updates += 1
+            if log_std_final is not None:
+                # Upper bound on exploration noise that shrinks linearly over the run; PPO may go lower on its own.
+                progress = total / float(total_steps)
+                if minutes is not None:
+                    progress = max(progress, (time.time() - start) / (minutes * 60.0))
+                cap = log_std_init + (log_std_final - log_std_init) * min(progress, 1.0)
+                with torch.no_grad():
+                    model.log_std.clamp_(max=cap)
 
             if total - last_log_steps >= eval_every_steps or total >= total_steps:
                 last_log_steps = total
@@ -393,15 +442,20 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
                     mean_len = float(np.mean([e["length"] for e in episode_window]))
                 else:
                     mean_return = legal_rate = contact_rate = mean_len = float("nan")
+                det_legal = det_contact = float("nan")
+                if vec_eval is not None:
+                    det_legal, det_contact = deterministic_eval(vec_eval, model, obs_rms, device)
                 wall_s = time.time() - start
-                writer.writerow([total, f"{wall_s:.2f}", mean_return, legal_rate, contact_rate, mean_len])
+                writer.writerow([total, f"{wall_s:.2f}", mean_return, legal_rate, contact_rate, mean_len,
+                                 det_legal, det_contact])
                 csv_fh.flush()
                 print(f"[ppo] step={total} update={n_updates} wall_s={wall_s:.1f} "
                       f"mean_return={mean_return:.3f} legal_return_rate={legal_rate:.1f}% "
-                      f"contact_rate={contact_rate:.1f}% ep_len={mean_len:.1f}")
+                      f"contact_rate={contact_rate:.1f}% ep_len={mean_len:.1f} det_legal_rate={det_legal:.1f}%")
 
-                if len(episode_window) >= 20 and legal_rate > best_legal_rate:
-                    best_legal_rate = legal_rate
+                selection = det_legal if vec_eval is not None else legal_rate
+                if (vec_eval is not None or len(episode_window) >= 20) and selection > best_legal_rate:
+                    best_legal_rate = selection
                     save_checkpoint(os.path.join(out, "best.pt"), model, obs_rms, total,
                                      obs_dim=obs_dim, act_dim=ACT_DIM, extra=ckpt_extra)
 
@@ -439,6 +493,10 @@ def main(argv=None) -> dict:
     parser.add_argument("--legal-bonus", type=float, default=5.0, help="one-off reward for a legal return")
     parser.add_argument("--intercept-features", action="store_true", help="append the 8-dim predicted-intercept block to the observation (non-residual only)")
     parser.add_argument("--intercept-reward", type=float, default=0.0, help="dense per-step penalty weight on |paddle - predicted intercept| before contact (non-residual only)")
+    parser.add_argument("--det-eval-episodes", type=int, default=0,
+                        help="if >0, every --eval-every-steps run the mean action on this many fixed serves and select best.pt by that")
+    parser.add_argument("--log-std-init", type=float, default=None, help="initial exploration log-std (default -1.6 residual / -0.5)")
+    parser.add_argument("--log-std-final", type=float, default=None, help="anneal the log-std upper bound linearly to this value over the run")
     parser.add_argument("--obs-delay-steps", type=int, default=0, help="FIFO-delay the policy's observation by this many control steps (sim-to-real sensor/actuation lag)")
     parser.add_argument("--obs-noise", type=float, default=0.0, help="std, metres, of Gaussian noise added to the observed ball position (velocity noise is 10x this, see env.py); 0 = off (non-residual only)")
     parser.add_argument("--joint-noise", type=float, default=0.0, help="like --obs-noise but for the robot's own joint position/velocity readings; 0 = off (non-residual only)")
@@ -453,6 +511,7 @@ def main(argv=None) -> dict:
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
         residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward, vel_penalty=args.vel_penalty, legal_bonus=args.legal_bonus, resume_from=args.resume_from,
         obs_delay_steps=args.obs_delay_steps, obs_noise=args.obs_noise, joint_noise=args.joint_noise,
+        det_eval_episodes=args.det_eval_episodes, log_std_init=args.log_std_init, log_std_final=args.log_std_final,
     )
     print(json.dumps(result, indent=2))
     return result

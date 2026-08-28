@@ -7,6 +7,8 @@ import os
 import shutil
 import time
 
+import csv
+
 import numpy as np
 import pytest
 
@@ -62,3 +64,17 @@ def test_ppo_policy_requires_a_checkpoint_source():
     os.environ.pop("TT_RL_CKPT", None)
     with pytest.raises(ValueError):
         PPOPolicy()
+
+
+def test_det_eval_selection_and_log_std_anneal(tmp_path):
+    from tt_sim.rl import ppo
+    out = tmp_path / "run"
+    ppo.train(n_envs=4, total_steps=256, seed=3, out=str(out), eval_every_steps=64, rollout_steps=16,
+              residual=True, residual_scale=0.2, det_eval_episodes=3, log_std_init=-1.0, log_std_final=-2.0)
+    rows = list(csv.DictReader(open(out / "train_log.csv")))
+    assert rows and "det_legal_rate" in rows[0]
+    det = [float(r["det_legal_rate"]) for r in rows]
+    assert all(0.0 <= d <= 100.0 for d in det)
+    assert (out / "best.pt").is_file()
+    ck = torch.load(out / "final.pt", map_location="cpu", weights_only=False)
+    assert float(ck["model_state"]["log_std"].max()) <= -2.0 + 1e-6
