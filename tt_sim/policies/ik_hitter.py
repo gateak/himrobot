@@ -75,6 +75,11 @@ only the flat ``obs`` dict -- see tt_sim.policies.base):
      contact rate more than the extra speed helped.
   4. The other 19 joints (both legs, left arm) always target
      tt_sim.scene.STAND_POSE, per the task spec.
+  5. Per-serve modulation (SERVE_PARAM_NOMINAL / set_serve_params): ten
+     scalars -- intercept x/y/z/timing offsets, swing-speed scale, paddle
+     pitch/yaw, aim x/y offsets, return-flight-time scale -- that retune
+     steps 1-3 for one whole episode. All nominal by default, which is the
+     behaviour documented above, unchanged.
 """
 from __future__ import annotations
 
@@ -184,6 +189,43 @@ def _solve_launch_velocity(p0: np.ndarray, p1: np.ndarray, flight_time: float) -
 
 
 # ---------------------------------------------------------------------------
+# Per-serve modulation ("serve params"): a small set of scalars that retune
+# this hitter for one whole episode without touching its structure. Every
+# nominal value below is the identity -- a hitter left at SERVE_PARAM_NOMINAL
+# reproduces the pre-existing behaviour exactly, byte for byte (see
+# tt_sim/tests/test_param_residual.py::test_nominal_serve_params_match_plain_hitter).
+# Consumed by tt_sim.rl.param_residual, which learns them per serve.
+# ---------------------------------------------------------------------------
+SERVE_PARAM_NOMINAL = {
+    "x_hit_offset": 0.0,       # m, added to x_hit (the hitting plane's depth)
+    "y_hit_offset": 0.0,       # m, added to the intercept point's y, before the reach clamp
+    "z_hit_offset": 0.0,       # m, added to the intercept point's z, before the reach clamp
+    "t_hit_offset": 0.0,       # s, extra re-sampling delay on top of PREDICTION_DELAY_S
+    "swing_speed_scale": 1.0,  # multiplies max_swing_speed (the swing-speed cap)
+    "pitch_offset": 0.0,       # rad, tilts the commanded paddle normal up (+) / down (-)
+    "yaw_offset": 0.0,         # rad, swings the commanded paddle normal toward +y (+)
+    "aim_x_offset": 0.0,       # m, added to the aim point's x (depth on the opponent half)
+    "aim_y_offset": 0.0,       # m, added to the aim point's y (lateral)
+    "flight_time_scale": 1.0,  # multiplies return_flight_time (return loft)
+}
+
+
+def _rotate_normal(n: np.ndarray, pitch: float, yaw: float) -> np.ndarray:
+    """Rotate a unit paddle normal: +pitch raises its z (rotation about
+    world +y in the sense that maps +x toward +z), +yaw swings it toward +y
+    (rotation about world +z), applied yaw-after-pitch. Returns ``n``
+    untouched at (0, 0) so the nominal path is bit-for-bit unchanged."""
+    if pitch == 0.0 and yaw == 0.0:
+        return n
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cy, sy = np.cos(yaw), np.sin(yaw)
+    ry = np.array([[cp, 0.0, -sp], [0.0, 1.0, 0.0], [sp, 0.0, cp]])
+    rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
+    rotated = rz @ (ry @ n)
+    return rotated / np.linalg.norm(rotated)
+
+
+# ---------------------------------------------------------------------------
 # Reach / IK joint set: waist (yaw, roll, pitch) + right arm (7 joints).
 # ---------------------------------------------------------------------------
 IK_JOINT_NAMES = [
@@ -229,6 +271,7 @@ class IKHitterPolicy(Policy):
         x_hit: float = X_HIT,
         speed_buffer: float = 0.03,
         max_swing_speed: float = 1.0,
+        serve_params: dict | None = None,
     ):
         self.t_pre = t_pre
         self.t_follow = t_follow
@@ -243,6 +286,11 @@ class IKHitterPolicy(Policy):
         self.normal_eps = normal_eps
         self.w_normal = w_normal
         self.x_hit = x_hit
+        # Nominal until told otherwise: see SERVE_PARAM_NOMINAL / set_serve_params.
+        for _name, _nominal in SERVE_PARAM_NOMINAL.items():
+            setattr(self, _name, float(_nominal))
+        if serve_params:
+            self.set_serve_params(serve_params)
 
         # Private shadow model: FK/IK only, never stepped, never seen by
         # the env. Built via tt_sim.scene.build_model() (the sanctioned
@@ -277,6 +325,24 @@ class IKHitterPolicy(Policy):
         j = mujoco.mj_name2id(self._ik_model, mujoco.mjtObj.mjOBJ_JOINT, name)
         assert j >= 0, name
         return j
+
+    def set_serve_params(self, params: dict | None = None, **kwargs) -> None:
+        """Set the whole per-serve modulation vector at once. Anything not
+        named is reset to its nominal (identity) value, so one call fully
+        describes the hitter's retuning for the upcoming serve; the current
+        plan is dropped so the next act() replans under the new values.
+
+        reset() deliberately leaves these alone -- the per-serve parameters
+        outlive an episode reset so a caller can order reset()/
+        set_serve_params() either way round.
+        """
+        merged = {**SERVE_PARAM_NOMINAL, **(params or {}), **kwargs}
+        unknown = sorted(set(merged) - set(SERVE_PARAM_NOMINAL))
+        if unknown:
+            raise ValueError(f"unknown serve params {unknown}; known: {sorted(SERVE_PARAM_NOMINAL)}")
+        for name, value in merged.items():
+            setattr(self, name, float(value))
+        self._plan = None
 
     # -- Policy interface -----------------------------------------------
     def reset(self, episode: dict) -> None:
@@ -314,23 +380,33 @@ class IKHitterPolicy(Policy):
                 self._plan = None  # this swing window has elapsed
 
         traj = _predict_ball_trajectory(ball_pos, ball_vel)
-        hit = _find_intercept(traj, self.x_hit)
+        hit = _find_intercept(traj, self.x_hit + self.x_hit_offset)
         if hit is None:
             return
-        t_rel, p_hit, v_in = _sample_trajectory_at(traj, hit[0] + PREDICTION_DELAY_S)
+        # t_hit_offset rides on PREDICTION_DELAY_S: both re-sample the SAME
+        # predicted trajectory further along, so timing and position stay
+        # mutually consistent (see PREDICTION_DELAY_S's comment).
+        t_rel, p_hit, v_in = _sample_trajectory_at(
+            traj, hit[0] + PREDICTION_DELAY_S + self.t_hit_offset)
         p_hit = p_hit.copy()
-        p_hit[1] = float(np.clip(p_hit[1], *Y_REACH))
-        p_hit[2] = float(np.clip(p_hit[2], *Z_REACH))
+        # Offsets go in *before* the reach clamp, so a requested offset can
+        # never push the target outside the arm's workspace.
+        p_hit[1] = float(np.clip(p_hit[1] + self.y_hit_offset, *Y_REACH))
+        p_hit[2] = float(np.clip(p_hit[2] + self.z_hit_offset, *Z_REACH))
 
         tx, ty = scene.target_point(self._target_zone, self._target_depth)
+        tx += self.aim_x_offset
+        ty += self.aim_y_offset
         target3 = np.array([tx, ty, scene.TABLE_TOP_Z + scene.BALL_RADIUS])
-        v_target = _solve_launch_velocity(p_hit, target3, self.return_flight_time)
+        v_target = _solve_launch_velocity(
+            p_hit, target3, self.return_flight_time * self.flight_time_scale)
         swing_vel = self._risk * (v_target - v_in)
         speed = np.linalg.norm(swing_vel)
         if speed < 1e-6:
             swing_vel = np.array([2.0, 0.0, 0.5])  # degenerate fallback: a modest forward-up push
             speed = np.linalg.norm(swing_vel)
-        if speed > self.max_swing_speed:
+        speed_cap = self.max_swing_speed * self.swing_speed_scale
+        if speed > speed_cap:
             # Cap the *commanded Cartesian target's* speed: the raw
             # risk_preference * (v_target - v_ball_in) magnitude can run to
             # several m/s, which (a) the kp=500 position actuators cannot
@@ -341,12 +417,16 @@ class IKHitterPolicy(Policy):
             # (a faster but unreachable/untrackable target is a worse
             # target). Capping keeps the swing achievable; direction (and
             # so aim) is preserved exactly, only magnitude is reduced.
-            swing_vel = swing_vel * (self.max_swing_speed / speed)
-            speed = self.max_swing_speed
-        n_des = swing_vel / speed
+            swing_vel = swing_vel * (speed_cap / speed)
+            speed = speed_cap
+        # n_back is the swing direction (used for the backswing point);
+        # n_des is the commanded paddle face, which pitch/yaw_offset tilt
+        # away from it. Identical at nominal.
+        n_back = swing_vel / speed
+        n_des = _rotate_normal(n_back, self.pitch_offset, self.yaw_offset)
 
         self._plan = dict(t_contact=t_now + t_rel, p_hit=p_hit, v_in=v_in,
-                           swing_vel=swing_vel, n_des=n_des)
+                           swing_vel=swing_vel, n_des=n_des, n_back=n_back)
 
     def _swing_target(self, t_now: float):
         """Paddle-centre target trajectory.
@@ -374,12 +454,13 @@ class IKHitterPolicy(Policy):
         plan = self._plan
         t_c = plan["t_contact"]
         p_hit, swing_vel, n_des = plan["p_hit"], plan["swing_vel"], plan["n_des"]
+        n_back = plan["n_back"]
         t_speed = t_c - self.speed_buffer  # target already at full swing_vel by here
         if t_now >= t_speed:
             p_des = p_hit + swing_vel * (t_now - t_c)
         else:
             p_atspeed = p_hit - swing_vel * self.speed_buffer
-            p_pre = p_atspeed - self.backswing_dist * n_des
+            p_pre = p_atspeed - self.backswing_dist * n_back
             T = self.t_pre
             s = np.clip((t_now - (t_speed - T)) / T, 0.0, 1.0)
             h00 = 2 * s**3 - 3 * s**2 + 1

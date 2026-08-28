@@ -1,6 +1,6 @@
 """tt_sim.policies.base.Policy adapters for tt_sim/rl's checkpoints, loadable
 by tt_sim.evaluate via --policy tt_sim.rl.policy:BCPolicy /
---policy tt_sim.rl.policy:PPOPolicy (evaluate.py's _load_policy constructs a
+--policy tt_sim.rl.policy:PPOPolicy / --policy tt_sim.rl.policy:ParamResidualPolicy (evaluate.py's _load_policy constructs a
 policy with a bare `cls()`, so every Policy here must be zero-arg
 constructible -- PPOPolicy's checkpoint source is an env var precisely so
 `cls()` still works: see TT_RL_CKPT below).
@@ -22,6 +22,7 @@ import torch
 from tt_sim import scene
 from tt_sim.policies.base import Policy
 from tt_sim.policies.ik_hitter import IKHitterPolicy
+from tt_sim.rl import param_residual
 from tt_sim.rl import ppo as ppo_mod
 from tt_sim.rl.demos import target_to_action
 from tt_sim.rl.env import ACT_DIM, flatten_obs, map_action
@@ -209,3 +210,70 @@ class ResidualPPOPolicy(Policy):
         action = np.clip(expert_action + self.residual_scale * a_rl, -1.0, 1.0)
         self._prev_action = action
         return map_action(action, self._jnt_range)
+
+
+class ParamResidualPolicy(Policy):
+    """Runs a tt_sim/rl/param_train.py checkpoint: once per serve it reads
+    tt_sim.rl.param_residual.serve_features from the episode's first
+    observation, forwards them through the trained
+    tt_sim.rl.param_residual.ParamActorCritic deterministically (the Gaussian's
+    mean, not a sample), squashes to u = tanh(mean) and retunes its own
+    tt_sim.policies.ik_hitter.IKHitterPolicy with the resulting serve params for
+    the whole episode. Every control step after that is the plain IK hitter --
+    there is no per-step residual.
+
+    Episode starts are detected from the observation dict itself, not only from
+    reset(): a new episode is any obs whose ``time_s`` is not greater than the
+    previous one (TableTennisEnv restarts its clock at 0 on reset). reset()
+    also arms the same one-shot, so the parameters are chosen on the first
+    act() of a trial either way -- which is the only point where the serve is
+    actually visible, since reset() runs before any observation exists.
+
+    Zero-arg constructible for tt_sim.evaluate's `--policy
+    tt_sim.rl.policy:ParamResidualPolicy` (see PPOPolicy's docstring on
+    TT_RL_CKPT). The parameter ranges come from the checkpoint, not from
+    param_residual's current PARAM_SPECS.
+    """
+
+    def __init__(self, ckpt_path: str | None = None):
+        path = ckpt_path or os.environ.get("TT_RL_CKPT")
+        if not path:
+            raise ValueError(
+                "ParamResidualPolicy needs a checkpoint: pass ckpt_path=... or set the "
+                "TT_RL_CKPT env var to a tt_sim/rl/param_train.py checkpoint (e.g. "
+                "work/tt/rl/param_run/best.pt)."
+            )
+        self.device = ppo_mod.pick_device()
+        self.model, self.feat_rms, self.param_specs = param_residual.load_checkpoint(path, self.device)
+        self.model.eval()
+
+        self.hitter = IKHitterPolicy()
+        self._target = _target_from_params(None)
+        self._pending = True
+        self._prev_time_s = None
+        self.last_params: dict | None = None
+
+    def reset(self, episode: dict) -> None:
+        self.hitter.reset(episode)
+        self._target = _target_from_params((episode or {}).get("params"))
+        self._pending = True
+        self._prev_time_s = None
+
+    def _choose(self, obs: dict) -> None:
+        feats = param_residual.serve_features(obs, self._target)
+        norm = self.feat_rms.normalize(feats[None, :].astype(np.float64))
+        feats_t = torch.as_tensor(norm, dtype=torch.float32, device=self.device)
+        mean, _logp, _value = self.model.act(feats_t, deterministic=True)
+        u = np.tanh(mean.cpu().numpy()[0].astype(np.float64))
+        self.last_params = param_residual.unsquash_to_params(u, self.param_specs)
+        self.hitter.set_serve_params(self.last_params)
+
+    def act(self, obs: dict) -> np.ndarray:
+        t_now = float(obs["time_s"])
+        if self._prev_time_s is not None and t_now <= self._prev_time_s:
+            self._pending = True  # the ball was reset under us: a new serve
+        self._prev_time_s = t_now
+        if self._pending:
+            self._choose(obs)
+            self._pending = False
+        return self.hitter.act(obs)
