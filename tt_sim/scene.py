@@ -145,9 +145,11 @@ _SCENE_XML = """
 )
 
 def _contact_xml(paddle: bool) -> str:
-    pairs = f'    <pair geom1="ball" geom2="table_top" solref="{BOUNCE_SOLREF}" solimp="{BOUNCE_SOLIMP}"/>\n'
+    # Named (unlike a bare geom1/geom2 pair) so TableTennisEnv can look up
+    # pair_solref by mj_name2id for physics_jitter instead of assuming index order.
+    pairs = f'    <pair name="ball_table_pair" geom1="ball" geom2="table_top" solref="{BOUNCE_SOLREF}" solimp="{BOUNCE_SOLIMP}"/>\n'
     if paddle:
-        pairs += f'    <pair geom1="ball" geom2="paddle_blade" solref="{BOUNCE_SOLREF}" solimp="{BOUNCE_SOLIMP}"/>\n'
+        pairs += f'    <pair name="ball_paddle_pair" geom1="ball" geom2="paddle_blade" solref="{BOUNCE_SOLREF}" solimp="{BOUNCE_SOLIMP}"/>\n'
     return f"\n  <contact>\n{pairs}  </contact>\n"
 
 
@@ -215,6 +217,7 @@ DEFAULT_PARAMS = {
     "target_zone": "crosscourt",
     "target_depth": "deep",
     "risk_preference": 0.45,
+    "physics_jitter": 0.0,  # 0 = off; see TableTennisEnv._apply_physics_jitter
 }
 
 
@@ -270,6 +273,63 @@ SERVE_FLIGHT_TIME_RANGE = (0.45, 0.75)  # s, controls effective speed
 SERVE_TARGET_X_RANGE = (-1.05, -0.25)  # robot-side arrival x (depth)
 SERVE_TARGET_Y_RANGE = (-0.65, -0.10)  # robot-side arrival y (forehand/right, lateral)
 
+# Overridable via params keys of the same name (serve_x0_range, ...) plus
+# serve_scale (widens every range symmetrically about its centre) — see
+# serve_ranges()/sample_serve(). Mirroring the constants above here means
+# params={} stays behaviour-identical to before these keys existed.
+DEFAULT_PARAMS.update({
+    "serve_x0_range": list(SERVE_X0_RANGE),
+    "serve_y0_range": list(SERVE_Y0_RANGE),
+    "serve_z0_height_range": list(SERVE_Z0_HEIGHT_RANGE),
+    "serve_flight_time_range": list(SERVE_FLIGHT_TIME_RANGE),
+    "serve_target_x_range": list(SERVE_TARGET_X_RANGE),
+    "serve_target_y_range": list(SERVE_TARGET_Y_RANGE),
+    "serve_scale": 1.0,
+})
+
+_SERVE_RANGE_KEYS = (
+    ("serve_x0_range", "x0", SERVE_X0_RANGE),
+    ("serve_y0_range", "y0", SERVE_Y0_RANGE),
+    ("serve_z0_height_range", "z0_height", SERVE_Z0_HEIGHT_RANGE),
+    ("serve_flight_time_range", "flight_time", SERVE_FLIGHT_TIME_RANGE),
+    ("serve_target_x_range", "target_x", SERVE_TARGET_X_RANGE),
+    ("serve_target_y_range", "target_y", SERVE_TARGET_Y_RANGE),
+)
+
+
+def _scale_range(lo_hi: tuple, scale: float) -> tuple[float, float]:
+    """Widen (lo, hi) symmetrically about its centre. scale=1.0 short-circuits
+    to the input unchanged (not recomputed via the centre/half arithmetic) so
+    the no-override, no-scale path stays bit-exact with the old fixed ranges."""
+    lo, hi = float(lo_hi[0]), float(lo_hi[1])
+    if scale == 1.0:
+        return (lo, hi)
+    centre = (lo + hi) / 2.0
+    half = (hi - lo) / 2.0 * scale
+    return (centre - half, centre + half)
+
+
+def serve_ranges(params: dict | None = None) -> dict[str, tuple[float, float]]:
+    """Effective (lo, hi) serve ranges sample_serve draws from, after param
+    overrides and serve_scale widening — exposed so callers/tests can check
+    bounds directly instead of reverse-engineering them from sampled pos/vel."""
+    p = params or {}
+    scale = float(p.get("serve_scale", 1.0))
+    out: dict[str, tuple[float, float]] = {}
+    for param_key, short, default in _SERVE_RANGE_KEYS:
+        out[short] = _scale_range(p.get(param_key, default), scale)
+
+    # target_y (lateral arrival point) must stay on the robot's forehand
+    # side: widening can't push it across the centreline or off the table.
+    ty_lo, ty_hi = out["target_y"]
+    ty_lo = max(ty_lo, -TABLE_HALF_WIDTH)
+    ty_hi = min(ty_hi, TABLE_HALF_WIDTH)
+    ty_base_hi = float(p.get("serve_target_y_range", SERVE_TARGET_Y_RANGE)[1])
+    if ty_base_hi <= 0.0:  # base range already forehand-side (y<=0)
+        ty_hi = min(ty_hi, 0.0)
+    out["target_y"] = (ty_lo, ty_hi)
+    return out
+
 
 def sample_serve(rng: np.random.Generator, params: dict | None = None) -> dict:
     """Sample a serve: a straight ballistic (no aerodynamic drag/Magnus)
@@ -277,20 +337,24 @@ def sample_serve(rng: np.random.Generator, params: dict | None = None) -> dict:
     zone at a randomized flight time, launched from a randomized point/height
     on the opponent's half. Returns {"pos": (3,), "vel": (3,), "spin": None}.
 
+    Ranges come from serve_ranges(params) — params={} (or None) reproduces
+    the SERVE_*_RANGE constants above unchanged; see serve_ranges() for the
+    override/serve_scale keys.
+
     Spin is not modelled aerodynamically in this pass (no Magnus force in
     plain MuJoCo without a custom force callback), so it is always None —
     documented simplification, not a missing feature of the ball body
     itself (which does have full 6-dof free-joint dynamics and would spin
     correctly on contact regardless).
     """
-    del params  # accepted for interface compatibility; ranges above are fixed for now.
+    ranges = serve_ranges(params)
     g = 9.81
-    x0 = rng.uniform(*SERVE_X0_RANGE)
-    y0 = rng.uniform(*SERVE_Y0_RANGE)
-    z0 = TABLE_TOP_Z + rng.uniform(*SERVE_Z0_HEIGHT_RANGE)
-    t = rng.uniform(*SERVE_FLIGHT_TIME_RANGE)
-    xt = rng.uniform(*SERVE_TARGET_X_RANGE)
-    yt = rng.uniform(*SERVE_TARGET_Y_RANGE)
+    x0 = rng.uniform(*ranges["x0"])
+    y0 = rng.uniform(*ranges["y0"])
+    z0 = TABLE_TOP_Z + rng.uniform(*ranges["z0_height"])
+    t = rng.uniform(*ranges["flight_time"])
+    xt = rng.uniform(*ranges["target_x"])
+    yt = rng.uniform(*ranges["target_y"])
     zt = TABLE_TOP_Z + BALL_RADIUS  # arrives just touching the table (the serve bounce)
 
     vx = (xt - x0) / t
@@ -320,6 +384,10 @@ def _empty_events() -> dict:
         # Extra (not in the minimum contract, additive): ms from serve to
         # the paddle first moving > 2 cm from its reset pose, or None.
         "reaction_latency_ms": None,
+        # Extra (additive): sampled physics_jitter multipliers for this
+        # episode (dict, see TableTennisEnv._apply_physics_jitter), or None
+        # when physics_jitter is off (default).
+        "physics": None,
     }
 
 
@@ -354,11 +422,26 @@ class TableTennisEnv:
         self._ball_dof_adr = self.model.jnt_dofadr[ball_jid]  # start of 6 (lin3+ang3)
 
         self._paddle_body_id = self._body("paddle")
+        self._ball_body_id = self._body("ball")
         self._ball_geom_id = self._geom("ball")
         self._table_geom_id = self._geom("table_top")
         self._net_geom_id = self._geom("net")
         self._paddle_geom_id = self._geom("paddle_blade")
         self._floor_geom_id = self._geom("floor")
+
+        # Nominal (unjittered) contact/friction/mass values, snapshotted once
+        # so physics_jitter scales from a fixed baseline every reset instead
+        # of compounding episode over episode. pair_solref is the ball-table
+        # / ball-paddle restitution-tuned params (BOUNCE_SOLREF, see module
+        # header); geom_friction is the ball/paddle/table CONTACT_FRICTION rows.
+        bt_pid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_PAIR, "ball_table_pair")
+        bp_pid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_PAIR, "ball_paddle_pair")
+        assert bt_pid >= 0 and bp_pid >= 0
+        self._jitter_pair_ids = np.array([bt_pid, bp_pid])
+        self._jitter_geom_ids = np.array([self._ball_geom_id, self._paddle_geom_id, self._table_geom_id])
+        self._nominal_pair_solref = self.model.pair_solref[self._jitter_pair_ids].copy()
+        self._nominal_geom_friction = self.model.geom_friction[self._jitter_geom_ids].copy()
+        self._nominal_ball_mass = float(self.model.body_mass[self._ball_body_id])
 
         self._events: dict = _empty_events()
         self._paddle_reset_pos: np.ndarray | None = None
@@ -381,10 +464,29 @@ class TableTennisEnv:
         assert g >= 0, name
         return g
 
+    def _apply_physics_jitter(self) -> dict | None:
+        """Domain-randomize ball/paddle/table contact params + ball mass by
+        +-physics_jitter (opt-in via params['physics_jitter'], default 0.0 =
+        off, model left untouched). Scales from the snapshotted nominal
+        values (not the current ones) so repeated resets don't compound."""
+        j = float(self.params.get("physics_jitter", 0.0))
+        if j <= 0.0:
+            return None
+        contact_mult = float(self._rng.uniform(1.0 - j, 1.0 + j))
+        friction_mult = float(self._rng.uniform(1.0 - j, 1.0 + j))
+        mass_mult = float(self._rng.uniform(1.0 - j, 1.0 + j))
+        self.model.pair_solref[self._jitter_pair_ids] = self._nominal_pair_solref * contact_mult
+        self.model.geom_friction[self._jitter_geom_ids] = self._nominal_geom_friction * friction_mult
+        self.model.body_mass[self._ball_body_id] = self._nominal_ball_mass * mass_mult
+        return {"contact_mult": contact_mult, "friction_mult": friction_mult, "mass_mult": mass_mult}
+
     def reset(self, serve: dict | None = None) -> dict:
         mujoco.mj_resetData(self.model, self.data)
         self.data.qpos[self._joint_qpos_adr] = STAND_POSE
         self.data.ctrl[self._actuator_ids] = STAND_POSE
+
+        self._events = _empty_events()
+        self._events["physics"] = self._apply_physics_jitter()
 
         if serve is None:
             serve = sample_serve(self._rng, self.params)
@@ -400,7 +502,6 @@ class TableTennisEnv:
 
         mujoco.mj_forward(self.model, self.data)
 
-        self._events = _empty_events()
         self._paddle_reset_pos = self.data.xpos[self._paddle_body_id].copy()
         self._prev_ball_x = float(self.data.qpos[self._ball_qpos_adr])
         self._prev_touching_table = False

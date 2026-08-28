@@ -2,7 +2,8 @@
   "artifacts": [],
   "contracts": {
     "runtime_interfaces:0:.him/contracts/runtime.json": "sha256:716845318382412a1e1f8caea7b96b71562d66eabcb21101e58145c33e48a1bb",
-    "training_pipelines:0:contracts/training-pipeline.json": "sha256:3200c3390a4fb5521a15dd0e38404c821cbd1337633b326f66cc7f66771c607b"
+    "runtime_interfaces:1:.him/contracts/tt-runtime.json": "sha256:543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139",
+    "training_pipelines:0:contracts/training-pipeline.json": "sha256:f7129477d483315c6cb4e7406edddfb9f8c52cca26b49c0808eec2de9590e933"
   },
   "entrypoints": [
     {
@@ -16,6 +17,27 @@
       ],
       "execution_mode": "local_python",
       "id": "inference",
+      "image_digest": null,
+      "image_ref": null,
+      "resource_class": "cpu-standard",
+      "working_directory": "."
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "tt_sim.evaluate",
+        "--policy",
+        "ik_hitter",
+        "--trials",
+        "10",
+        "--video"
+      ],
+      "contract_digests": [
+        "sha256:543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139"
+      ],
+      "execution_mode": "python",
+      "id": "evaluate",
       "image_digest": null,
       "image_ref": null,
       "resource_class": "cpu-standard",
@@ -40,7 +62,8 @@
     "tests": [
       "smoke",
       "pipeline-schema",
-      "validate-motion-unit"
+      "validate-motion-unit",
+      "tt-sim"
     ],
     "upload_inventory": [
       {
@@ -51,8 +74,8 @@
       },
       {
         "path": ".him/commands/README.md",
-        "sha256": "2850538647c1dcdaa79a8e2c5ff9e12e788f080910ac8d84e6f52860b9e71513",
-        "size_bytes": 1028,
+        "sha256": "b61fa657a4c026e74a3cdb5045a585b5fc1baea1ef2bc97561fc47709daaf792",
+        "size_bytes": 1758,
         "visibility": "private"
       },
       {
@@ -63,8 +86,14 @@
       },
       {
         "path": ".him/contracts/training-pipeline.json",
-        "sha256": "3200c3390a4fb5521a15dd0e38404c821cbd1337633b326f66cc7f66771c607b",
-        "size_bytes": 9844,
+        "sha256": "f7129477d483315c6cb4e7406edddfb9f8c52cca26b49c0808eec2de9590e933",
+        "size_bytes": 10570,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/contracts/tt-runtime.json",
+        "sha256": "543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139",
+        "size_bytes": 6317,
         "visibility": "private"
       },
       {
@@ -75,14 +104,20 @@
       },
       {
         "path": ".him/him.yaml",
-        "sha256": "1fe9a476f728e37629b2482a5f62447acbe976afd53558f2ce9698f997741c80",
-        "size_bytes": 2729,
+        "sha256": "9c2b446045940152a48dc03ef619d22d4b362ff623fd050296024e6940300cbc",
+        "size_bytes": 3547,
         "visibility": "private"
       },
       {
         "path": ".him/publication.yaml",
         "sha256": "adbd391bde49187d67ff50767b7a93bae176efa20549b83dcc6dfd87a41d8253",
         "size_bytes": 213,
+        "visibility": "private"
+      },
+      {
+        "path": ".him/tests/test_server.py",
+        "sha256": "c1657e2299de2f838871c4ebc66161956d191732cae18aedd641a35fc5c03aa0",
+        "size_bytes": 7022,
         "visibility": "private"
       },
       {
@@ -104,10 +139,10 @@
     "name": "him",
     "version": "1.0.0-local"
   },
-  "lock_digest": "sha256:53039b11a7b68341b1cf585b26fd016cade0cb3c54a146ab4d85f3cde2f2a690",
+  "lock_digest": "sha256:95fbb59abd3cc4723aa98304d1d643b0fe086195a7e5babd7d61e445661b5c1d",
   "package": {
     "kind": "brain",
-    "manifest_digest": "sha256:658064aa371b571b4d42284b26bf909963818510c01a0eaae5eb6d0a17e32dfb",
+    "manifest_digest": "sha256:2480505009b05bb770c09ab2ff796f7a4637a4e46d52983aaafcbb68da5c7bb0",
     "name": "himrobot",
     "version": "0.1.0"
   },
@@ -115,7 +150,7 @@
   "source": {
     "clean": false,
     "commit": null,
-    "digest": "sha256:ade30ee06640ee52244a057ea427e5720471935e2fccb8d4b579f6d2daa43643",
+    "digest": "sha256:5bc1746c53b6d39707f257868bb5c277723755044471f4b20fce558762201231",
     "repository": null,
     "submodules": {},
     "type": "git"

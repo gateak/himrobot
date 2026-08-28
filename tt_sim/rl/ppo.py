@@ -295,7 +295,8 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
           rollout_steps: int = 128, params: dict | None = None,
           residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE,
           intercept_features: bool = False, intercept_reward: float = 0.0,
-          vel_penalty: float = 0.0005, legal_bonus: float = 5.0, resume_from: str | None = None) -> dict:
+          vel_penalty: float = 0.0005, legal_bonus: float = 5.0, resume_from: str | None = None,
+          obs_delay_steps: int = 0, obs_noise: float = 0.0, joint_noise: float = 0.0) -> dict:
     """residual=False reproduces the original (pre-residual) trainer
     exactly -- same VecTT, OBS_DIM, log_std init (-0.5) and actor init.
     residual=True instead builds a tt_sim.rl.residual.VecTTResidual (obs
@@ -313,14 +314,20 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
 
     if residual and (intercept_features or intercept_reward > 0.0):
         raise NotImplementedError("--intercept-features/--intercept-reward do not compose with --residual yet")
+    if residual and (obs_noise > 0.0 or joint_noise > 0.0):
+        # VecTTResidual accepts these (constructor passthrough, see its
+        # docstring) but its obs-construction path never applies them.
+        raise NotImplementedError("--obs-noise/--joint-noise do not compose with --residual yet")
     obs_dim = RESIDUAL_OBS_DIM if residual else env_obs_dim(intercept_features=intercept_features)
     if residual:
         vec = VecTTResidual(n_envs=n_envs, seed=seed, params=params or {}, residual_scale=residual_scale,
-                            vel_penalty=vel_penalty, legal_bonus=legal_bonus)
+                            vel_penalty=vel_penalty, legal_bonus=legal_bonus,
+                            obs_delay_steps=obs_delay_steps, obs_noise=obs_noise, joint_noise=joint_noise)
     else:
         vec = VecTT(n_envs=n_envs, seed=seed, params=params or {},
                     intercept_features=intercept_features, intercept_reward=intercept_reward,
-                    vel_penalty=vel_penalty, legal_bonus=legal_bonus)
+                    vel_penalty=vel_penalty, legal_bonus=legal_bonus,
+                    obs_delay_steps=obs_delay_steps, obs_noise=obs_noise, joint_noise=joint_noise)
 
     log_std_init = -1.6 if residual else -0.5
     model = ActorCritic(obs_dim, ACT_DIM, log_std_init=log_std_init).to(device)
@@ -340,6 +347,9 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
         obs_rms.count = ck['obs_rms_count']
     ckpt_extra = ({"obs_version": OBS_VERSION, "residual": True, "residual_scale": residual_scale} if residual
                   else {"intercept_features": intercept_features, "intercept_reward": intercept_reward})
+    # Recorded regardless of mode so eval can report what the policy was
+    # trained under, e.g. how robust to expect it to be sim-to-real.
+    ckpt_extra.update({"obs_delay_steps": obs_delay_steps, "obs_noise": obs_noise, "joint_noise": joint_noise})
     if init_from:
         load_bc_actor_into(model, init_from, device)
     model.train()
@@ -413,7 +423,7 @@ def main(argv=None) -> dict:
     parser.add_argument("--n-envs", type=int, default=64)
     parser.add_argument("--total-steps", type=int, default=1_000_000)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", type=str, default=os.path.join("work", "tt", "rl", "run"))
+    parser.add_argument("--out", type=str, default=None)
     parser.add_argument("--init-from", type=str, default=None)
     parser.add_argument("--minutes", type=float, default=None, help="hard wall-clock cap, minutes")
     parser.add_argument("--eval-every-steps", type=int, default=20_000)
@@ -429,13 +439,20 @@ def main(argv=None) -> dict:
     parser.add_argument("--legal-bonus", type=float, default=5.0, help="one-off reward for a legal return")
     parser.add_argument("--intercept-features", action="store_true", help="append the 8-dim predicted-intercept block to the observation (non-residual only)")
     parser.add_argument("--intercept-reward", type=float, default=0.0, help="dense per-step penalty weight on |paddle - predicted intercept| before contact (non-residual only)")
+    parser.add_argument("--obs-delay-steps", type=int, default=0, help="FIFO-delay the policy's observation by this many control steps (sim-to-real sensor/actuation lag)")
+    parser.add_argument("--obs-noise", type=float, default=0.0, help="std, metres, of Gaussian noise added to the observed ball position (velocity noise is 10x this, see env.py); 0 = off (non-residual only)")
+    parser.add_argument("--joint-noise", type=float, default=0.0, help="like --obs-noise but for the robot's own joint position/velocity readings; 0 = off (non-residual only)")
     args = parser.parse_args(argv)
+    # --out left at its argparse default (None) means the flag wasn't passed explicitly,
+    # so a HIM job's HIM_CANDIDATE_OUTPUT wins; an explicit --out always overrides it.
+    out = args.out or os.environ.get("HIM_CANDIDATE_OUTPUT") or os.path.join("work", "tt", "rl", "run")
 
     result = train(
-        n_envs=args.n_envs, total_steps=args.total_steps, seed=args.seed, out=args.out,
+        n_envs=args.n_envs, total_steps=args.total_steps, seed=args.seed, out=out,
         init_from=args.init_from, minutes=args.minutes, eval_every_steps=args.eval_every_steps,
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
         residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward, vel_penalty=args.vel_penalty, legal_bonus=args.legal_bonus, resume_from=args.resume_from,
+        obs_delay_steps=args.obs_delay_steps, obs_noise=args.obs_noise, joint_noise=args.joint_noise,
     )
     print(json.dumps(result, indent=2))
     return result

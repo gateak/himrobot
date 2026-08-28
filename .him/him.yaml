@@ -63,6 +63,37 @@ entrypoints:
     network_policy: none
     secret_refs: []
     timeout_seconds: 1800
+  - id: train
+    purpose: training
+    execution_mode: python
+    command:
+      - python
+      - -m
+      - tt_sim.rl.ppo
+      - --residual
+      - --residual-scale
+      - "0.2"
+      - --vel-penalty
+      - "1e-5"
+      - --legal-bonus
+      - "10"
+      - --n-envs
+      - "64"
+      - --minutes
+      - "420"
+      - --eval-every-steps
+      - "100000"
+    working_directory: .
+    image_ref: null
+    image_digest: null
+    runtime_interface_ref: .him/contracts/tt-runtime.json
+    process_graph_ref: null
+    training_pipeline_ref: null
+    endpoint_profile_ref: null
+    resource_class: cpu-standard
+    network_policy: none
+    secret_refs: []
+    timeout_seconds: 27000
 artifacts: []
 contracts:
   runtime_interfaces:

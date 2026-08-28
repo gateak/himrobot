@@ -74,6 +74,18 @@ $BLENDER -b --python sim/fbx_extract.py -- data/rokoko-motion-capture/Clip_4.fbx
 ~/him-tools/mujoco-venv/bin/python sim/play_g1_csv.py work/g1/Clip_2.csv   # live viewer
 ```
 
+## HIM Arena entrypoints
+
+Besides the stdio `inference` server, `.him/him.yaml` declares `evaluate`
+(`python -m tt_sim.evaluate ...`) and `train` (`python -m tt_sim.rl.ppo
+--residual --residual-scale 0.2 --vel-penalty 1e-5 --legal-bonus 10
+--n-envs 64 --minutes 420 --eval-every-steps 100000`), both `execution_mode:
+python` against the `tt-runtime.json` contract. `train` omits `--out`: when
+run under HIM, `tt_sim/rl/ppo.py` writes checkpoints (`best.pt`, `final.pt`)
+and `train_log.csv` to `$HIM_CANDIDATE_OUTPUT`; run by hand with no `--out`
+and no `HIM_CANDIDATE_OUTPUT` set, it still defaults to `work/tt/rl/run` as
+before.
+
 ## The robot
 
 This project uses the **Unitree G1** as the target robot (29-DOF humanoid,

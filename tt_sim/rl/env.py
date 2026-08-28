@@ -56,6 +56,13 @@ ACTION_SCALE = np.array([0.0] * _N_LEG + [3.0] * _N_WAIST + [3.0] * _N_ARM, dtyp
 OBS_DIM = scene.NUM_JOINTS * 2 + 3 + 3 + 3 + 2 + 1 + scene.NUM_JOINTS  # 99
 ACT_DIM = scene.NUM_JOINTS  # 29
 
+# Slices into the base 99-dim block for obs_noise/joint_noise (see VecTT.__init__)
+# -- fixed regardless of which additive feature blocks get appended after it.
+_JOINT_POS_SLICE = slice(0, scene.NUM_JOINTS)
+_JOINT_VEL_SLICE = slice(scene.NUM_JOINTS, scene.NUM_JOINTS * 2)
+_BALL_POS_SLICE = slice(scene.NUM_JOINTS * 2, scene.NUM_JOINTS * 2 + 3)
+_BALL_VEL_SLICE = slice(scene.NUM_JOINTS * 2 + 3, scene.NUM_JOINTS * 2 + 6)
+
 # Optional additive obs blocks, appended in this fixed order after the base
 # 99: intercept features (this module, intercept_features=True) then expert
 # features (tt_sim.rl.ppo's BC-expert mode, appended in its own additive
@@ -129,13 +136,25 @@ class VecTT:
     def __init__(self, n_envs: int, seed: int = 0, params: dict | None = None,
                  obs_delay_steps: int = 0, randomize: bool = True,
                  intercept_features: bool = False, intercept_reward: float = 0.0,
-                 vel_penalty: float = 0.0005, legal_bonus: float = 5.0):
+                 vel_penalty: float = 0.0005, legal_bonus: float = 5.0,
+                 obs_noise: float = 0.0, joint_noise: float = 0.0):
         assert n_envs >= 1
         assert obs_delay_steps >= 0
+        assert obs_noise >= 0.0 and joint_noise >= 0.0
         self.n_envs = n_envs
         self.params = dict(params or {})
         self.obs_delay_steps = obs_delay_steps
         self.randomize = randomize
+        # obs_noise/joint_noise default to 0.0, which skips the RNG draw
+        # entirely in _add_obs_noise -- a seeded rollout is then bit-for-bit
+        # identical to before these knobs existed. Sensor noise only, applied
+        # to the flat obs the policy reads (see _flat_obs/_add_obs_noise);
+        # _reward_and_done always sees the raw, un-noised TableTennisEnv obs.
+        self.obs_noise = float(obs_noise)
+        self.joint_noise = float(joint_noise)
+        # Separate rng (offset well clear of _fixed_serve_rng's seed+999_983
+        # below) so enabling noise never perturbs the fixed-serve draw stream.
+        self._noise_rng = np.random.default_rng(seed + 4_242_017)
         # intercept_features/intercept_reward default to False/0.0, which
         # keeps obs_dim==OBS_DIM and _reward_and_done's added term a no-op --
         # existing (pre-Task-F) behaviour is exactly preserved unless a
@@ -259,9 +278,37 @@ class VecTT:
         ball_vel = np.asarray(obs["ball.velocity"], dtype=np.float64)
         return predict_intercept(ball_pos, ball_vel)
 
+    def _add_obs_noise(self, flat: np.ndarray) -> np.ndarray:
+        """Additive Gaussian sensor noise on the flat obs the policy reads
+        -- ball position/velocity always (obs_noise), the robot's own joint
+        readings only if joint_noise is separately set (proprioception is
+        normally far cleaner than a tracked external object, hence the
+        separate default-off knob). Position noise std = the knob value, in
+        the same metres/radians the obs slot is already in; velocity noise
+        std = 10x the knob value, because obs velocity is what a vision
+        tracker would estimate by differencing two noisy position samples
+        over one control-step dt -- that differencing amplifies noise well
+        past the position measurement it's derived from, and 10x is a coarse
+        stand-in for that amplification (exact factor depends on dt/tracker,
+        not modelled here). Velocity noise is drawn in the same raw m/s (or
+        rad/s) units as the position noise, then scaled by the same 0.1/0.2
+        factor flatten_obs already applies to that slot, so both land in obs
+        units consistently."""
+        out = flat.copy()
+        if self.obs_noise > 0.0:
+            out[_BALL_POS_SLICE] += self._noise_rng.normal(0.0, self.obs_noise, size=3)
+            out[_BALL_VEL_SLICE] += self._noise_rng.normal(0.0, self.obs_noise * 10.0, size=3) * 0.2
+        if self.joint_noise > 0.0:
+            n = scene.NUM_JOINTS
+            out[_JOINT_POS_SLICE] += self._noise_rng.normal(0.0, self.joint_noise, size=n)
+            out[_JOINT_VEL_SLICE] += self._noise_rng.normal(0.0, self.joint_noise * 10.0, size=n) * 0.1
+        return out.astype(np.float32)
+
     def _flat_obs(self, obs: dict, prev_action: np.ndarray, target: tuple, time_s: float,
                   intercept: tuple[np.ndarray, float, bool] | None = None) -> np.ndarray:
         base = flatten_obs(obs, prev_action, target, time_s)
+        if self.obs_noise > 0.0 or self.joint_noise > 0.0:
+            base = self._add_obs_noise(base)
         if not self.intercept_features:
             return base
         p_int, t_int, valid = intercept if intercept is not None else self._predict_intercept_for(obs)

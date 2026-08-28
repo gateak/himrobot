@@ -81,7 +81,14 @@ class VecTTResidual(VecTT):
     def __init__(self, n_envs: int, seed: int = 0, params: dict | None = None,
                  obs_delay_steps: int = 0, randomize: bool = True,
                  residual_scale: float = DEFAULT_RESIDUAL_SCALE, vel_penalty: float = 0.0005,
-                 legal_bonus: float = 5.0):
+                 legal_bonus: float = 5.0, obs_noise: float = 0.0, joint_noise: float = 0.0):
+        # obs_noise/joint_noise: constructor passthrough only (stored on self
+        # via super().__init__ below, so ppo.py can build both VecTT and
+        # VecTTResidual with the same kwargs and log what was requested to
+        # the checkpoint). NOT applied: _widen_reset/step below build obs via
+        # flatten_obs directly, not self._flat_obs, so the actual noise
+        # injection in VecTT._add_obs_noise never runs on this path. ppo.py's
+        # train() rejects --residual combined with either != 0 accordingly.
         self.residual_scale = float(residual_scale)
         # One IKHitterPolicy per env slot, reset alongside that slot's
         # TableTennisEnv (see _reset_one); _expert_action[i] always holds
@@ -95,7 +102,8 @@ class VecTTResidual(VecTT):
         try:
             super().__init__(n_envs=n_envs, seed=seed, params=params,
                               obs_delay_steps=obs_delay_steps, randomize=randomize,
-                              vel_penalty=vel_penalty, legal_bonus=legal_bonus)
+                              vel_penalty=vel_penalty, legal_bonus=legal_bonus,
+                              obs_noise=obs_noise, joint_noise=joint_noise)
         finally:
             del self._reset_one  # restore the class-level (widening) override below
 

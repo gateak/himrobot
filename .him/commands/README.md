@@ -27,5 +27,12 @@ The `output_digest` value is a hash of the list of specified outputs of each
 dependency. Thus, the JSON reports that follow show a hash for each clip. You
 can use these hashes to find what changed.
 
-These items are not configured: policy training, export, and evaluation. An
-NVIDIA runner is necessary for policy training.
+The `train` entrypoint runs `python -m tt_sim.rl.ppo --residual
+--residual-scale 0.2 --vel-penalty 1e-5 --legal-bonus 10 --n-envs 64
+--minutes 420 --eval-every-steps 100000`. This command does not pass `--out`.
+`tt_sim/rl/ppo.py` writes checkpoints (`best.pt`, `final.pt`) and
+`train_log.csv` to `$HIM_CANDIDATE_OUTPUT` when HIM sets it, else to
+`work/tt/rl/run`. `tt_sim.rl.ppo.pick_device` uses MPS if available, else
+CPU; an NVIDIA runner is not necessary for this entrypoint.
+
+These items are not configured: export.
