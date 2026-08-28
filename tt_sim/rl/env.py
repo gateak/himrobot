@@ -128,7 +128,8 @@ class VecTT:
 
     def __init__(self, n_envs: int, seed: int = 0, params: dict | None = None,
                  obs_delay_steps: int = 0, randomize: bool = True,
-                 intercept_features: bool = False, intercept_reward: float = 0.0):
+                 intercept_features: bool = False, intercept_reward: float = 0.0,
+                 vel_penalty: float = 0.0005, legal_bonus: float = 5.0):
         assert n_envs >= 1
         assert obs_delay_steps >= 0
         self.n_envs = n_envs
@@ -142,6 +143,10 @@ class VecTT:
         # layout and intercept.predict_intercept for what p_int/t_int mean.
         self.intercept_features = intercept_features
         self.intercept_reward = float(intercept_reward)
+        # Reward knobs. The default vel_penalty dominates the return on a fast swing (~-2.5/episode),
+        # so PPO learns to swing slower; the v2 box runs use 1e-5 with legal_bonus 10.
+        self.vel_penalty = float(vel_penalty)
+        self.legal_bonus = float(legal_bonus)
         self.obs_dim = obs_dim(intercept_features=self.intercept_features)
         self.act_dim = ACT_DIM
 
@@ -316,7 +321,7 @@ class VecTT:
 
         legal_now = scene.legal_return(events)
         if legal_now and not self._legal_latched[i]:
-            reward += 5.0
+            reward += getattr(self, "legal_bonus", 5.0)
             err = scene.landing_error_m(events, self._targets[i])
             if not np.isnan(err):
                 reward += 3.0 * float(np.exp(-err ** 2 / 0.5 ** 2))
@@ -326,7 +331,7 @@ class VecTT:
         reward -= 0.001 * float(np.sum(da ** 2))
 
         jv = np.asarray(obs["robot.joint_velocity"], dtype=np.float64)
-        reward -= 0.0005 * float(np.sum(jv ** 2))
+        reward -= getattr(self, "vel_penalty", 0.0005) * float(np.sum(jv ** 2))
 
         failed_now = bool(events.get("net_hit")) or bool(events.get("out"))
         if failed_now and self._contact_latched[i] and not self._fail_latched[i]:

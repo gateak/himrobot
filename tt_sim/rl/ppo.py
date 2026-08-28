@@ -294,7 +294,8 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
           minutes: float | None = None, eval_every_steps: int = 20_000,
           rollout_steps: int = 128, params: dict | None = None,
           residual: bool = False, residual_scale: float = DEFAULT_RESIDUAL_SCALE,
-          intercept_features: bool = False, intercept_reward: float = 0.0) -> dict:
+          intercept_features: bool = False, intercept_reward: float = 0.0,
+          vel_penalty: float = 0.0005, legal_bonus: float = 5.0) -> dict:
     """residual=False reproduces the original (pre-residual) trainer
     exactly -- same VecTT, OBS_DIM, log_std init (-0.5) and actor init.
     residual=True instead builds a tt_sim.rl.residual.VecTTResidual (obs
@@ -314,10 +315,12 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
         raise NotImplementedError("--intercept-features/--intercept-reward do not compose with --residual yet")
     obs_dim = RESIDUAL_OBS_DIM if residual else env_obs_dim(intercept_features=intercept_features)
     if residual:
-        vec = VecTTResidual(n_envs=n_envs, seed=seed, params=params or {}, residual_scale=residual_scale)
+        vec = VecTTResidual(n_envs=n_envs, seed=seed, params=params or {}, residual_scale=residual_scale,
+                            vel_penalty=vel_penalty, legal_bonus=legal_bonus)
     else:
         vec = VecTT(n_envs=n_envs, seed=seed, params=params or {},
-                    intercept_features=intercept_features, intercept_reward=intercept_reward)
+                    intercept_features=intercept_features, intercept_reward=intercept_reward,
+                    vel_penalty=vel_penalty, legal_bonus=legal_bonus)
 
     log_std_init = -1.6 if residual else -0.5
     model = ActorCritic(obs_dim, ACT_DIM, log_std_init=log_std_init).to(device)
@@ -412,6 +415,8 @@ def main(argv=None) -> dict:
                               "(tt_sim.rl.residual.VecTTResidual) instead of learning from scratch")
     parser.add_argument("--residual-scale", type=float, default=DEFAULT_RESIDUAL_SCALE,
                          help="a = clip(a_exp + residual_scale * a_rl, -1, 1); only used with --residual")
+    parser.add_argument("--vel-penalty", type=float, default=0.0005, help="per-step weight on sum(joint_velocity^2)")
+    parser.add_argument("--legal-bonus", type=float, default=5.0, help="one-off reward for a legal return")
     parser.add_argument("--intercept-features", action="store_true", help="append the 8-dim predicted-intercept block to the observation (non-residual only)")
     parser.add_argument("--intercept-reward", type=float, default=0.0, help="dense per-step penalty weight on |paddle - predicted intercept| before contact (non-residual only)")
     args = parser.parse_args(argv)
@@ -420,7 +425,7 @@ def main(argv=None) -> dict:
         n_envs=args.n_envs, total_steps=args.total_steps, seed=args.seed, out=args.out,
         init_from=args.init_from, minutes=args.minutes, eval_every_steps=args.eval_every_steps,
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
-        residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward,
+        residual=args.residual, residual_scale=args.residual_scale, intercept_features=args.intercept_features, intercept_reward=args.intercept_reward, vel_penalty=args.vel_penalty, legal_bonus=args.legal_bonus,
     )
     print(json.dumps(result, indent=2))
     return result

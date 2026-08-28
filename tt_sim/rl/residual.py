@@ -80,7 +80,8 @@ class VecTTResidual(VecTT):
 
     def __init__(self, n_envs: int, seed: int = 0, params: dict | None = None,
                  obs_delay_steps: int = 0, randomize: bool = True,
-                 residual_scale: float = DEFAULT_RESIDUAL_SCALE):
+                 residual_scale: float = DEFAULT_RESIDUAL_SCALE, vel_penalty: float = 0.0005,
+                 legal_bonus: float = 5.0):
         self.residual_scale = float(residual_scale)
         # One IKHitterPolicy per env slot, reset alongside that slot's
         # TableTennisEnv (see _reset_one); _expert_action[i] always holds
@@ -93,7 +94,8 @@ class VecTTResidual(VecTT):
         self._reset_one = lambda i: VecTT._reset_one(self, i)
         try:
             super().__init__(n_envs=n_envs, seed=seed, params=params,
-                              obs_delay_steps=obs_delay_steps, randomize=randomize)
+                              obs_delay_steps=obs_delay_steps, randomize=randomize,
+                              vel_penalty=vel_penalty, legal_bonus=legal_bonus)
         finally:
             del self._reset_one  # restore the class-level (widening) override below
 
