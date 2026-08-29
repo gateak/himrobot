@@ -48,6 +48,29 @@ entrypoints:
       - -m
       - tt_sim.evaluate
       - --policy
+      - tt_sim.policies.param_residual_np:NumpyParamResidualPolicy
+      - --trials
+      - "10"
+      - --video
+    working_directory: .
+    image_ref: null
+    image_digest: null
+    runtime_interface_ref: .him/contracts/tt-runtime.json
+    process_graph_ref: null
+    training_pipeline_ref: null
+    endpoint_profile_ref: null
+    resource_class: cpu-standard
+    network_policy: none
+    secret_refs: []
+    timeout_seconds: 1800
+  - id: evaluate-hitter
+    purpose: evaluation
+    execution_mode: python
+    command:
+      - python
+      - -m
+      - tt_sim.evaluate
+      - --policy
       - ik_hitter
       - --trials
       - "10"
