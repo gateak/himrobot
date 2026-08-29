@@ -80,6 +80,12 @@ only the flat ``obs`` dict -- see tt_sim.policies.base):
      pitch/yaw, aim x/y offsets, return-flight-time scale -- that retune
      steps 1-3 for one whole episode. All nominal by default, which is the
      behaviour documented above, unchanged.
+  6. Swing library ("hitter v2", SWING_TEMPLATES / blend_shape / reach_box):
+     five presets over the same shape vector, selected by a rectified-gate
+     barycentric blend, plus coarse hitting-plane, reach-clamp,
+     face-vs-position-weight, dwell and swing-direction knobs. Ten more
+     per-serve scalars (SERVE_PARAM_NOMINAL_V2), every one of them the
+     identity at nominal -- so all of the above still holds bit for bit.
 """
 from __future__ import annotations
 
@@ -246,6 +252,175 @@ Y_REACH = (-0.75, 0.15)
 Z_REACH = (0.65, 1.35)
 
 
+def _rotate_vector(v: np.ndarray, pitch: float, yaw: float) -> np.ndarray:
+    """_rotate_normal's magnitude-preserving twin, for rotating the swing
+    velocity (and so the cruise line and the backswing point). The paddle
+    face is always defined relative to the swing direction (n_des =
+    _rotate_normal(n_back, ...)), so rotating the swing also carries the face
+    with it; face_pitch/face_yaw and pitch/yaw_offset are biases ON TOP of
+    that, exactly as pitch_offset was in v1. Returns ``v`` untouched at (0, 0)."""
+    if pitch == 0.0 and yaw == 0.0:
+        return v
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cy, sy = np.cos(yaw), np.sin(yaw)
+    ry = np.array([[cp, 0.0, -sp], [0.0, 1.0, 0.0], [sp, 0.0, cp]])
+    rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
+    return rz @ (ry @ v)
+
+
+# ---------------------------------------------------------------------------
+# Swing library ("hitter v2"). Every template is a preset over the same set of
+# scalars, so any convex combination of two templates is itself a valid swing
+# -- which is what makes the blended selector below well-defined. "drive" is
+# the pre-v2 behaviour verbatim (the constructor defaults); the other four are
+# shape variants the per-serve policy can blend toward.
+#
+#   x_hit         hitting-plane depth (m)
+#   pred_delay    re-sampling delay on the predicted trajectory (s)
+#   speed_cap     commanded-target speed cap (m/s)
+#   flight_time   return flight time used to solve the launch velocity (s)
+#   risk_gain     multiplies the episode's risk_preference in the swing solve
+#   face_pitch/face_yaw  template bias on the paddle normal, relative to the
+#                        (already dir-rotated) swing direction (rad)
+#   dir_pitch/dir_yaw    template bias on the swing direction itself (rad);
+#                        the face follows it, so a lift's commanded face
+#                        elevation is dir_pitch + face_pitch
+#   t_pre/speed_buffer/t_follow  swing-window widths (s)
+#   backswing     backswing distance behind p_hit (m)
+#   y_lo/y_hi/z_lo/z_hi  the Cartesian reach clamp for this template
+#
+# Rationale per template: "block" is a near-static, wide-dwell paddle that
+# maximises contact probability on marginal serves; "lift" is a high slow arc
+# for net clearance on low/late intercepts; "punch" is the fast/flat/deep
+# extension; "crossbody" was designed as the mirrored right-arm posture for a
+# ball taken on the backhand side (there is no left-arm backhand, the paddle
+# is welded to the right wrist only) but ships as a deeper/lifted drive variant
+# because the +y half of the workspace cannot be used collision-free (see the
+# template's own comment and REACH_MAX_Y). No topspin/brush template:
+# scene.py applies no Magnus force, so a tangential brush has no payoff here.
+# ---------------------------------------------------------------------------
+SHAPE_FIELDS = ("x_hit", "pred_delay", "speed_cap", "flight_time", "risk_gain",
+                "face_pitch", "face_yaw", "dir_pitch", "dir_yaw",
+                "t_pre", "speed_buffer", "t_follow", "backswing",
+                "y_lo", "y_hi", "z_lo", "z_hi")
+
+TEMPLATE_ORDER = ("drive", "block", "lift", "punch", "crossbody")
+
+SWING_TEMPLATES: dict[str, dict[str, float]] = {
+    "drive": dict(
+        x_hit=X_HIT, pred_delay=PREDICTION_DELAY_S, speed_cap=1.00, flight_time=0.50,
+        risk_gain=1.00, face_pitch=0.00, face_yaw=0.00, dir_pitch=0.00, dir_yaw=0.00,
+        t_pre=0.30, speed_buffer=0.03, t_follow=0.20, backswing=0.10,
+        y_lo=Y_REACH[0], y_hi=Y_REACH[1], z_lo=Z_REACH[0], z_hi=Z_REACH[1],
+    ),
+    "block": dict(
+        x_hit=-1.30, pred_delay=0.034, speed_cap=0.25, flight_time=0.66,
+        risk_gain=0.40, face_pitch=0.18, face_yaw=0.00, dir_pitch=0.25, dir_yaw=0.00,
+        t_pre=0.45, speed_buffer=0.08, t_follow=0.35, backswing=0.03,
+        y_lo=Y_REACH[0], y_hi=Y_REACH[1], z_lo=0.62, z_hi=1.40,
+    ),
+    "lift": dict(
+        x_hit=-1.34, pred_delay=0.036, speed_cap=0.80, flight_time=0.80,
+        risk_gain=0.90, face_pitch=0.30, face_yaw=0.00, dir_pitch=0.55, dir_yaw=0.00,
+        t_pre=0.35, speed_buffer=0.05, t_follow=0.30, backswing=0.14,
+        y_lo=-0.78, y_hi=0.15, z_lo=0.60, z_hi=1.30,
+    ),
+    "punch": dict(
+        x_hit=-1.14, pred_delay=0.028, speed_cap=2.20, flight_time=0.33,
+        risk_gain=1.40, face_pitch=-0.05, face_yaw=0.00, dir_pitch=-0.10, dir_yaw=0.00,
+        t_pre=0.22, speed_buffer=0.03, t_follow=0.15, backswing=0.18,
+        y_lo=-0.72, y_hi=0.15, z_lo=0.68, z_hi=1.42,
+    ),
+    # "crossbody" ships WITHOUT the +y box that was its design rationale (this
+    # solver self-collides there, see REACH_MAX_Y) and therefore without the
+    # yaw biases too: with the box shut the template only ever applies on the
+    # forehand side, where a face yaw of either sign is an aim error the per-
+    # serve aim already solves (measured: shipped yaws 2-3/24 legal at full
+    # gate vs 9-7/24 nominal; both yaws zeroed scores best). What is left is a
+    # slightly deeper, slightly lifted, slower-flight variant of drive.
+    "crossbody": dict(
+        x_hit=-1.26, pred_delay=0.032, speed_cap=1.00, flight_time=0.55,
+        risk_gain=1.00, face_pitch=0.10, face_yaw=0.00, dir_pitch=0.10, dir_yaw=0.00,
+        t_pre=0.34, speed_buffer=0.04, t_follow=0.22, backswing=0.08,
+        y_lo=Y_REACH[0], y_hi=Y_REACH[1], z_lo=0.68, z_hi=1.40,
+    ),
+}
+assert all(set(t) == set(SHAPE_FIELDS) for t in SWING_TEMPLATES.values())
+
+# A single gate at u = 1 gives weights (1, 4), i.e. 80% of the target template
+# and 20% of drive: deliberate, drive is the measured-good prior and keeping a
+# fifth of it regularises the blend.
+GATE_GAIN = 4.0
+
+# The outer limit reach_box() can interpolate a template's clamp toward, set by
+# what the *runtime* solver (local, warm-started from the current pose, one
+# _solve_ik call per control step) actually achieves collision-free, not by an
+# offline multi-restart reach study. Measured over the template hitting planes
+# with the blade above the table: the y floor is collision-free all the way to
+# -0.90, and commanding it gains ~4-6 cm of achieved blade y over -0.75, while
+# every commanded y >= +0.30 self-collides on this solver (23-45 contacts, and
+# 0.14-0.37 m of residual position error) under every face normal and w_normal
+# tried -- so the crossbody half of the workspace is deliberately NOT opened
+# here. z barely matters either way: the measured intercept z spans 0.91-1.35,
+# so the floor already has >25 cm of unused margin.
+REACH_MAX_Y = (-0.90, 0.15)
+REACH_MAX_Z = (0.60, 1.45)
+
+
+def blend_shape(gates, drive: dict | None = None) -> dict:
+    """Rectified-gate barycentric blend over SWING_TEMPLATES. ``gates`` are the
+    four non-drive gate values; only positive ones count, drive always carries
+    weight 1. ``drive`` overrides the drive template (an IKHitterPolicy passes
+    its own constructor-kwarg-derived one)."""
+    base = SWING_TEMPLATES["drive"] if drive is None else drive
+    w = [GATE_GAIN * g if g > 0.0 else 0.0 for g in gates]
+    if not any(w):
+        return base  # WHY: bit-exact v1 path -- returns the drive dict with no arithmetic
+    shapes = [base] + [SWING_TEMPLATES[n] for n in TEMPLATE_ORDER[1:]]
+    weights = [1.0] + w
+    total = sum(weights)
+    return {f: sum(wk * s[f] for wk, s in zip(weights, shapes)) / total for f in SHAPE_FIELDS}
+
+
+def reach_box(shape: dict, expand_y: float, expand_z: float):
+    """((y_lo, y_hi), (z_lo, z_hi)) for a blended shape, each interpolated
+    ``expand_*`` of the way from the template's own clamp to REACH_MAX_*.
+    Joint limits stay enforced by _solve_ik's per-iteration jnt_range clip, so
+    a wider box can only stretch the pose, never violate a limit."""
+    ey = min(max(expand_y, 0.0), 1.0)
+    ez = min(max(expand_z, 0.0), 1.0)
+    if ey == 0.0 and ez == 0.0:
+        return (shape["y_lo"], shape["y_hi"]), (shape["z_lo"], shape["z_hi"])  # WHY: bit-exact v1 clamp
+    return ((shape["y_lo"] + ey * (REACH_MAX_Y[0] - shape["y_lo"]),
+             shape["y_hi"] + ey * (REACH_MAX_Y[1] - shape["y_hi"])),
+            (shape["z_lo"] + ez * (REACH_MAX_Z[0] - shape["z_lo"]),
+             shape["z_hi"] + ez * (REACH_MAX_Z[1] - shape["z_hi"])))
+
+
+# v2 superset of SERVE_PARAM_NOMINAL: the ten v1 knobs plus the swing-library
+# selector and the reach/shape knobs. Every added nominal is again the
+# identity, so a hitter at SERVE_PARAM_NOMINAL_V2 is the plain hitter.
+SERVE_PARAM_NOMINAL_V2 = {
+    **SERVE_PARAM_NOMINAL,
+    "gate_block": 0.0,          # blend weight GATE_GAIN*relu(u) toward the block template
+    "gate_lift": 0.0,           # ...toward lift
+    "gate_punch": 0.0,          # ...toward punch
+    "gate_crossbody": 0.0,      # ...toward crossbody
+    "x_hit_coarse": 0.0,        # m, coarse hitting-plane depth, stacks on x_hit_offset
+    "reach_expand_y": 0.0,      # 0..1 lerp of the y clamp toward REACH_MAX_Y
+    "reach_expand_z": 0.0,      # 0..1 lerp of the z clamp toward REACH_MAX_Z
+    "normal_weight_scale": 1.0, # multiplies w_normal (face-accuracy vs. position priority)
+    "swing_window_scale": 1.0,  # multiplies t_pre/speed_buffer/t_follow together (dwell)
+    "swing_dir_pitch": 0.0,     # rad, rotates the swing direction up (+) / down (-)
+}
+
+# Clip on the effective w_normal (8 * normal_weight_scale): the useful
+# direction is DOWN (position priority near the workspace edge), and the low
+# end 8/16 = 0.5 is exact; the top clips at 16 from u = 0.25 on, on purpose --
+# w_normal = 128 makes the 6x10 DLS ill-conditioned and buys nothing.
+W_NORMAL_RANGE = (0.5, 16.0)
+
+
 class IKHitterPolicy(Policy):
     """Model-based hitter: predict, IK, swing. See module docstring."""
 
@@ -286,9 +461,18 @@ class IKHitterPolicy(Policy):
         self.normal_eps = normal_eps
         self.w_normal = w_normal
         self.x_hit = x_hit
-        # Nominal until told otherwise: see SERVE_PARAM_NOMINAL / set_serve_params.
-        for _name, _nominal in SERVE_PARAM_NOMINAL.items():
+        # Nominal until told otherwise: see SERVE_PARAM_NOMINAL_V2 / set_serve_params.
+        for _name, _nominal in SERVE_PARAM_NOMINAL_V2.items():
             setattr(self, _name, float(_nominal))
+        # The blend's drive template *is* this instance's constructor kwargs, so
+        # a hitter built with custom widths still blends around its own defaults.
+        self._drive_shape = {
+            **SWING_TEMPLATES["drive"],
+            "x_hit": self.x_hit, "speed_cap": self.max_swing_speed,
+            "flight_time": self.return_flight_time, "t_pre": self.t_pre,
+            "speed_buffer": self.speed_buffer, "t_follow": self.t_follow,
+            "backswing": self.backswing_dist,
+        }
         if serve_params:
             self.set_serve_params(serve_params)
 
@@ -336,10 +520,11 @@ class IKHitterPolicy(Policy):
         outlive an episode reset so a caller can order reset()/
         set_serve_params() either way round.
         """
-        merged = {**SERVE_PARAM_NOMINAL, **(params or {}), **kwargs}
-        unknown = sorted(set(merged) - set(SERVE_PARAM_NOMINAL))
+        merged = {**SERVE_PARAM_NOMINAL_V2, **(params or {}), **kwargs}
+        unknown = sorted(set(merged) - set(SERVE_PARAM_NOMINAL_V2))
         if unknown:
-            raise ValueError(f"unknown serve params {unknown}; known: {sorted(SERVE_PARAM_NOMINAL)}")
+            raise ValueError(
+                f"unknown serve params {unknown}; known: {sorted(SERVE_PARAM_NOMINAL_V2)}")
         for name, value in merged.items():
             setattr(self, name, float(value))
         self._plan = None
@@ -362,10 +547,11 @@ class IKHitterPolicy(Policy):
 
         action = scene.STAND_POSE.copy()
         plan = self._plan
-        window_start = plan["t_contact"] - self.speed_buffer - self.t_pre if plan is not None else None
-        if plan is not None and window_start <= t_now <= plan["t_contact"] + self.t_follow:
+        window_start = (plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]
+                        if plan is not None else None)
+        if plan is not None and window_start <= t_now <= plan["t_contact"] + plan["t_follow"]:
             p_des, n_des = self._swing_target(t_now)
-            q_ik = self._solve_ik(q29, p_des, n_des)
+            q_ik = self._solve_ik(q29, p_des, n_des, plan["w_normal"])
             action[IK_INDICES] = q_ik
         return action
 
@@ -373,39 +559,55 @@ class IKHitterPolicy(Policy):
     def _maybe_replan(self, t_now: float, ball_pos: np.ndarray, ball_vel: np.ndarray) -> None:
         plan = self._plan
         if plan is not None:
-            if t_now < plan["t_contact"] + self.t_follow:
-                if t_now >= plan["t_contact"] - self.speed_buffer - self.t_pre:
+            if t_now < plan["t_contact"] + plan["t_follow"]:
+                if t_now >= plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]:
                     return  # mid-swing: stay committed, don't retarget
             else:
                 self._plan = None  # this swing window has elapsed
 
+        # One swing shape per replan: the four gates blend the templates, the
+        # ten v1 offsets then ride on top of the blended shape exactly as they
+        # rode on the constructor defaults before v2.
+        shape = blend_shape((self.gate_block, self.gate_lift,
+                             self.gate_punch, self.gate_crossbody), self._drive_shape)
+
+        x_hit_eff = shape["x_hit"] + self.x_hit_offset
+        if self.x_hit_coarse != 0.0:
+            x_hit_eff = x_hit_eff + self.x_hit_coarse
         traj = _predict_ball_trajectory(ball_pos, ball_vel)
-        hit = _find_intercept(traj, self.x_hit + self.x_hit_offset)
+        hit = _find_intercept(traj, x_hit_eff)
         if hit is None:
             return
         # t_hit_offset rides on PREDICTION_DELAY_S: both re-sample the SAME
         # predicted trajectory further along, so timing and position stay
         # mutually consistent (see PREDICTION_DELAY_S's comment).
         t_rel, p_hit, v_in = _sample_trajectory_at(
-            traj, hit[0] + PREDICTION_DELAY_S + self.t_hit_offset)
+            traj, hit[0] + shape["pred_delay"] + self.t_hit_offset)
         p_hit = p_hit.copy()
         # Offsets go in *before* the reach clamp, so a requested offset can
         # never push the target outside the arm's workspace.
-        p_hit[1] = float(np.clip(p_hit[1] + self.y_hit_offset, *Y_REACH))
-        p_hit[2] = float(np.clip(p_hit[2] + self.z_hit_offset, *Z_REACH))
+        y_box, z_box = reach_box(shape, self.reach_expand_y, self.reach_expand_z)
+        p_hit[1] = float(np.clip(p_hit[1] + self.y_hit_offset, *y_box))
+        p_hit[2] = float(np.clip(p_hit[2] + self.z_hit_offset, *z_box))
 
         tx, ty = scene.target_point(self._target_zone, self._target_depth)
         tx += self.aim_x_offset
         ty += self.aim_y_offset
         target3 = np.array([tx, ty, scene.TABLE_TOP_Z + scene.BALL_RADIUS])
         v_target = _solve_launch_velocity(
-            p_hit, target3, self.return_flight_time * self.flight_time_scale)
-        swing_vel = self._risk * (v_target - v_in)
+            p_hit, target3, shape["flight_time"] * self.flight_time_scale)
+        risk = self._risk if shape["risk_gain"] == 1.0 else self._risk * shape["risk_gain"]
+        swing_vel = risk * (v_target - v_in)
+        # Swing direction: rotating swing_vel moves the cruise line and the
+        # backswing point with it -- and, because n_des below is built from
+        # n_back, the paddle face too (face biases are relative to the swing).
+        swing_vel = _rotate_vector(swing_vel, shape["dir_pitch"] + self.swing_dir_pitch,
+                                   shape["dir_yaw"])
         speed = np.linalg.norm(swing_vel)
         if speed < 1e-6:
             swing_vel = np.array([2.0, 0.0, 0.5])  # degenerate fallback: a modest forward-up push
             speed = np.linalg.norm(swing_vel)
-        speed_cap = self.max_swing_speed * self.swing_speed_scale
+        speed_cap = shape["speed_cap"] * self.swing_speed_scale
         if speed > speed_cap:
             # Cap the *commanded Cartesian target's* speed: the raw
             # risk_preference * (v_target - v_ball_in) magnitude can run to
@@ -423,10 +625,25 @@ class IKHitterPolicy(Policy):
         # n_des is the commanded paddle face, which pitch/yaw_offset tilt
         # away from it. Identical at nominal.
         n_back = swing_vel / speed
-        n_des = _rotate_normal(n_back, self.pitch_offset, self.yaw_offset)
+        n_des = _rotate_normal(n_back, shape["face_pitch"] + self.pitch_offset,
+                               shape["face_yaw"] + self.yaw_offset)
+
+        w = self.swing_window_scale
+        if w == 1.0:
+            t_pre, speed_buffer, t_follow = shape["t_pre"], shape["speed_buffer"], shape["t_follow"]
+        else:
+            t_pre, speed_buffer, t_follow = (shape["t_pre"] * w, shape["speed_buffer"] * w,
+                                             shape["t_follow"] * w)
+        if self.normal_weight_scale == 1.0:
+            w_normal = self.w_normal
+        else:
+            w_normal = float(np.clip(self.w_normal * self.normal_weight_scale, *W_NORMAL_RANGE))
 
         self._plan = dict(t_contact=t_now + t_rel, p_hit=p_hit, v_in=v_in,
-                           swing_vel=swing_vel, n_des=n_des, n_back=n_back)
+                           swing_vel=swing_vel, n_des=n_des, n_back=n_back,
+                           shape=shape, t_pre=t_pre, speed_buffer=speed_buffer,
+                           t_follow=t_follow, backswing=shape["backswing"],
+                           w_normal=w_normal)
 
     def _swing_target(self, t_now: float):
         """Paddle-centre target trajectory.
@@ -455,13 +672,13 @@ class IKHitterPolicy(Policy):
         t_c = plan["t_contact"]
         p_hit, swing_vel, n_des = plan["p_hit"], plan["swing_vel"], plan["n_des"]
         n_back = plan["n_back"]
-        t_speed = t_c - self.speed_buffer  # target already at full swing_vel by here
+        t_speed = t_c - plan["speed_buffer"]  # target already at full swing_vel by here
         if t_now >= t_speed:
             p_des = p_hit + swing_vel * (t_now - t_c)
         else:
-            p_atspeed = p_hit - swing_vel * self.speed_buffer
-            p_pre = p_atspeed - self.backswing_dist * n_back
-            T = self.t_pre
+            p_atspeed = p_hit - swing_vel * plan["speed_buffer"]
+            p_pre = p_atspeed - plan["backswing"] * n_back
+            T = plan["t_pre"]
             s = np.clip((t_now - (t_speed - T)) / T, 0.0, 1.0)
             h00 = 2 * s**3 - 3 * s**2 + 1
             h01 = -2 * s**3 + 3 * s**2
@@ -470,7 +687,9 @@ class IKHitterPolicy(Policy):
         return p_des, n_des
 
     # -- IK ------------------------------------------------------------
-    def _solve_ik(self, q29_current: np.ndarray, p_des: np.ndarray, n_des: np.ndarray) -> np.ndarray:
+    def _solve_ik(self, q29_current: np.ndarray, p_des: np.ndarray, n_des: np.ndarray,
+                  w_normal: float | None = None) -> np.ndarray:
+        w_normal = self.w_normal if w_normal is None else w_normal
         d = self._ik_data
         d.qpos[self._all_qpos_adr] = q29_current
         eye10 = np.eye(N_IK)
@@ -495,8 +714,8 @@ class IKHitterPolicy(Policy):
             mujoco.mj_jac(self._ik_model, d, self._jacp_a, None, pa_cur, self._paddle_body_id)
             mujoco.mj_jac(self._ik_model, d, self._jacp_b, None, pb_cur, self._paddle_body_id)
             J = np.vstack([self._jacp_a[:, self._ik_dof_adr],
-                            self.w_normal * self._jacp_b[:, self._ik_dof_adr]])
-            err = np.concatenate([pa_des - pa_cur, self.w_normal * (pb_des - pb_cur)])
+                            w_normal * self._jacp_b[:, self._ik_dof_adr]])
+            err = np.concatenate([pa_des - pa_cur, w_normal * (pb_des - pb_cur)])
 
             JJt_damped = J @ J.T + (self.dls_damping ** 2) * eye6
             Jpinv = J.T @ np.linalg.inv(JJt_damped)

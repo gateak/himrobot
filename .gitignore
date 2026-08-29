@@ -17,3 +17,8 @@ work/
 .him/runs/
 .him/.registry/
 .claude/
+
+# Keep the committed test fixtures despite the data/ rule above
+!tt_sim/tests/data/
+!tt_sim/tests/data/*.npz
+MUJOCO_LOG.TXT

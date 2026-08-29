@@ -196,3 +196,12 @@ def test_ik_hitter_rollout_yields_at_least_one_contact_in_20_serves():
         contacts.append(bool(info["contact_paddle"]))
 
     assert sum(contacts) >= 1, f"expected >=1 contact in {n_serves} serves, got {contacts}"
+
+
+def test_target_hit_radius_matches_the_evaluator():
+    """env.TARGET_HIT_RADIUS_M (target_hit_bonus, param_train.deterministic_eval)
+    is a hand copy of the evaluator's radius; they must never drift apart."""
+    from tt_sim import evaluate
+    from tt_sim.rl import env as rl_env
+
+    assert rl_env.TARGET_HIT_RADIUS_M == evaluate.TARGET_HIT_RADIUS_M == 0.30

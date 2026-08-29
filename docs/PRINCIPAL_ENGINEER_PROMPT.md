@@ -29,8 +29,9 @@ fixed-pelvis leaderboard score → HIM's Isaac validation lane → hardware revi
   trainer `tt_sim.rl.param_train`, runtime `tt_sim/policies/param_residual_np.py` — torch-free because HIM's
   worker has no torch). 70.5–71 % legal on three independent 200-serve sets; hitter 46.5 %; per-step PPO residual
   peaked at 53.5 % and degraded with more training (it optimizes under its own exploration noise).
-- Numbers only count when produced by `tt_sim.evaluate` with the mean action on fixed serve seeds (11, 7, 3;
-  200 serves each). Train-time rates under exploration noise are diagnostics, never results. Select checkpoints by
+- Numbers only count when produced by `tt_sim.evaluate` with the mean action on fixed serve seeds (11, 2000, 4000;
+  200 serves each — seeds closer together than the trial count share serves; 11/7/3 shared 196 of 200). One command:
+  `python -m tt_sim.rl.eval_seeds --ckpt … --npz … --hitter --out DIR`. Train-time rates under exploration noise are diagnostics, never results. Select checkpoints by
   deterministic evaluation (`--det-eval-episodes`).
 - HIM Compute: the package runs, scores and renders on HIM's `cpu-mujoco-sim` worker; jobs then die at
   `publishing_outputs` with `provider_reconciliation_timeout` (HIM-side, no charge). SSH boxes (RunPod, 93 or
@@ -67,11 +68,14 @@ fixed-pelvis leaderboard score → HIM's Isaac validation lane → hardware revi
 10. Report like an engineer: what was measured, what changed, what it cost, what is blocked and on whom.
     Bad news first. No "should work" — run it.
 
-## Current plan (2026-08-29)
+## Current plan (2026-08-29, evening)
 
-1. Hitter v2 (in progress): failure taxonomy of the 70 % policy → swing library, waist participation, relaxed
-   reach, `PARAM_SPECS_V2`, `--aim-bonus`; retrain; target >80 % legal with real placement.
-2. Robustness sweep on a box: 20–30 seeds over widened serves + jitter + obs noise; deterministic selection.
+1. Hitter v2 landed (swing library, 20-knob space, warm start, deterministic selection). Result: placement doubled
+   (`param_residual_v2_wa0.npz`: 26.5 % target hits, 0.39 m), legal returns unchanged (~73.5 % on unseen serves).
+   Legal returns are within 2–5 points of the fixed-pelvis reach ceiling; >80 % needs either the deep-plane /
+   waist reach fixed (self-collision of the warm-started IK at x < −1.28) or the pelvis unwelded — a scene change.
+2. Robustness sweep on a box (`scripts/box_param_sweep.sh`, 40 runs × ~7 h, 128 cores, 744 credits): widened serves +
+   jitter + obs noise/delay, 200-serve selection sets, long enough for the new knobs to be discovered.
 3. Package: wire the policy behind the `inference` entrypoint with ball state in the runtime contract once HIM
    confirms what it streams; `him arena submit` when a version opens.
 4. MJX port of `tt_sim` (GPU-parallel rollouts) as the prerequisite for the full-body lane; then Isaac Lab
@@ -79,6 +83,6 @@ fixed-pelvis leaderboard score → HIM's Isaac validation lane → hardware revi
 
 ## Definition of done for any training run
 
-Deterministic legal-return rate, target-hit rate, landing error and contacts on seeds 11/7/3 (200 serves each),
-compared in one table against the hitter (46.5 %) and the current best (70.5 %), checkpoint path, exact command,
+Deterministic legal-return rate, target-hit rate, landing error and contacts on seeds 11/2000/4000 (200 serves each),
+compared in one table against the hitter (~45 %) and the current best (~73.5 % / 26.5 % target), checkpoint path, exact command,
 wall time and credits spent, written to `work/tt/rl/<run>/RESULT.md` and summarised in `docs/PROJECT_KNOWLEDGE.md`.

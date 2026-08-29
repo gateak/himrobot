@@ -19,7 +19,11 @@ from tt_sim.policies.ik_hitter import IKHitterPolicy
 from tt_sim.rl.intercept import predict_intercept
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DEFAULT_WEIGHTS = os.path.join(_REPO, "assets", "policies", "param_residual_s3.npz")
+# v1 (10 knobs): 70.5 % legal on seed 11, 12 % target hits on unseen serves.
+S3_WEIGHTS = os.path.join(_REPO, "assets", "policies", "param_residual_s3.npz")
+# v2 wa0 (20 knobs, placement reward): same legal rate, 26-31 % target hits, 0.39 m landing error.
+V2_WA0_WEIGHTS = os.path.join(_REPO, "assets", "policies", "param_residual_v2_wa0.npz")
+DEFAULT_WEIGHTS = V2_WA0_WEIGHTS  # what the package's evaluate entrypoint runs
 
 
 def serve_features(obs: dict, target: tuple) -> np.ndarray:
@@ -51,6 +55,9 @@ class NumpyParamResidualPolicy(Policy):
         self.names = [str(n) for n in z["param_names"]]
         self.kinds = [str(k) for k in z["param_kinds"]]
         self.bounds = z["param_bounds"].astype(np.float64)
+        # Metadata only -- names/kinds/bounds above are what actually decodes,
+        # so an .npz exported before param_space existed still loads.
+        self.param_space = str(z["param_space"]) if "param_space" in z.files else "v1"
         self.hitter = IKHitterPolicy()
         self._target = self._target_from_params(None)
         self._pending = True

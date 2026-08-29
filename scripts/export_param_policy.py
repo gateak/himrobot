@@ -24,8 +24,10 @@ def main(src: str, dst: str) -> None:
     arrays["param_names"] = np.array([s[0] for s in specs])
     arrays["param_kinds"] = np.array([s[1] for s in specs])
     arrays["param_bounds"] = np.array([float(s[2]) for s in specs], dtype=np.float64)
+    arrays["param_space"] = np.array(param_residual.space_name_for(specs))
     np.savez(dst, **arrays)
-    print(f"wrote {dst}: {len(specs)} params, layers {[a.shape for k, a in arrays.items() if k.startswith('W')]}")
+    print(f"wrote {dst}: {arrays['param_space']} / {len(specs)} params, "
+          f"layers {[a.shape for k, a in arrays.items() if k.startswith('W')]}")
 
 
 if __name__ == "__main__":

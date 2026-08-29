@@ -1,7 +1,8 @@
 """tt_sim evaluation CLI.
 
     python -m tt_sim.evaluate --policy {hold,ik_hitter,module.path:ClassName}
-        [--trials N] [--seed S] [--params JSON] [--out DIR] [--video]
+        [--trials N] [--seed S] [--params JSON] [--out DIR] [--video] [--no-trajectory]
+        [--obs-noise M] [--joint-noise RAD] [--obs-delay-steps K]
 
 Runs ``--trials`` served-ball episodes against the named policy in
 tt_sim.scene.TableTennisEnv and writes:
@@ -34,6 +35,7 @@ import time
 
 import numpy as np
 
+from tt_sim.obs_perturb import ObsPerturber
 from tt_sim.policies.base import Policy
 from tt_sim.scene import (
     CONTROL_HZ,
@@ -152,6 +154,7 @@ def run_trial(
     traj_fh,
     recorder=None,
     legal_flags: list[bool] | None = None,
+    perturber: ObsPerturber | None = None,
 ) -> dict:
     """Run one episode, stream its steps to traj_fh (JSON Lines), and
     return this trial's per_trial summary dict."""
@@ -159,11 +162,15 @@ def run_trial(
     serve = sample_serve(serve_rng, env.params)
     obs = env.reset(serve=serve)
     policy.reset({"serve": _json_safe(serve), "params": env.params, "trial": trial_idx, "seed": trial_seed})
+    if perturber is None:
+        perturber = ObsPerturber()
+    policy_obs = perturber.reset(obs)
 
     info: dict = {}
     for step_i in range(EPISODE_CONTROL_STEPS):
-        action = policy.act(obs)
+        action = policy.act(policy_obs)
         obs, info = env.step(action)
+        policy_obs = perturber.step(obs)
 
         traj_fh.write(json.dumps({
             "trial": trial_idx,
@@ -220,6 +227,14 @@ def main(argv: list[str] | None = None) -> dict:
     parser.add_argument("--params", type=str, default="{}", help="JSON dict, merged over tt_sim.scene.DEFAULT_PARAMS")
     parser.add_argument("--out", type=str, default=None, help="base output dir (default work/tt/eval); see HIM_* env vars")
     parser.add_argument("--video", action="store_true", help="render trial_<k>.mp4 + summary.mp4")
+    parser.add_argument("--no-trajectory", action="store_true",
+                        help="skip candidate/trajectory.jsonl (~30 MB per 200 trials); evaluator.json is unchanged")
+    parser.add_argument("--obs-noise", type=float, default=0.0,
+                        help="std (m) of Gaussian noise on the ball position the policy sees; velocity gets 10x")
+    parser.add_argument("--joint-noise", type=float, default=0.0,
+                        help="std (rad) of Gaussian noise on the joint readings the policy sees; velocity gets 10x")
+    parser.add_argument("--obs-delay-steps", type=int, default=0,
+                        help="the policy sees observations this many control steps (20 ms each) old")
     args = parser.parse_args(argv)
 
     params = {**DEFAULT_PARAMS, **json.loads(args.params)}
@@ -239,7 +254,7 @@ def main(argv: list[str] | None = None) -> dict:
     trial_video_paths: list[str] = []
     start = time.time()
 
-    trajectory_path = os.path.join(candidate_dir, "trajectory.jsonl")
+    trajectory_path = os.devnull if args.no_trajectory else os.path.join(candidate_dir, "trajectory.jsonl")
     with open(trajectory_path, "w") as traj_fh:
         for k in range(args.trials):
             recorder = None
@@ -251,9 +266,11 @@ def main(argv: list[str] | None = None) -> dict:
                     print(f"[evaluate] video disabled: {exc!r}", file=sys.stderr)
                     recorder = None
 
+            perturber = ObsPerturber(args.obs_noise, args.joint_noise, args.obs_delay_steps,
+                                     seed=args.seed + k)
             result = run_trial(
                 env, policy, k, args.trials, args.seed + k, target, traj_fh,
-                recorder=recorder, legal_flags=legal_flags,
+                recorder=recorder, legal_flags=legal_flags, perturber=perturber,
             )
             per_trial.append(result)
             legal_flags.append(result["legal_return"])
@@ -280,6 +297,8 @@ def main(argv: list[str] | None = None) -> dict:
             "tt_sim/README.md."
         ),
         "params": params,
+        "policy_obs": {"obs_noise": args.obs_noise, "joint_noise": args.joint_noise,
+                       "delay_steps": args.obs_delay_steps},
         "metrics": metrics,
         "per_trial": per_trial,
         "wall_time_s": time.time() - start,

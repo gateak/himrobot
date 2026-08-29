@@ -182,7 +182,9 @@ def test_train_smoke_writes_log_and_checkpoints(tmp_path):
     assert os.path.exists(os.path.join(out, "final.pt"))
     with open(os.path.join(out, "train_log.csv")) as fh:
         header = fh.readline().strip().split(",")
-    assert header == ["episode", "wall_s", "mean_return", "legal_return_rate", "contact_rate"]
+    assert header[:5] == ["episode", "wall_s", "mean_return", "legal_return_rate", "contact_rate"]
+    assert header[5:9] == ["det_legal_rate", "det_contact_rate", "det_target_rate", "det_landing_error_m"]
+    assert header[9:] == [f"u_{name}" for name in pr.PARAM_NAMES]  # v1 has no gates -> no blend_* columns
 
     model, feat_rms, specs = pr.load_checkpoint(os.path.join(out, "final.pt"),
                                                 torch.device("cpu"))

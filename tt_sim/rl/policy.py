@@ -245,6 +245,7 @@ class ParamResidualPolicy(Policy):
             )
         self.device = ppo_mod.pick_device()
         self.model, self.feat_rms, self.param_specs = param_residual.load_checkpoint(path, self.device)
+        self.param_space = getattr(self.model, "param_space", "v1")
         self.model.eval()
 
         self.hitter = IKHitterPolicy()

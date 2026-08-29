@@ -28,7 +28,10 @@ Plain definitions, each tied to what it means *here*. Read top to bottom once; t
   Reached 53.5 %, then got worse with more training. Superseded.
 - **Checkpoint** (`best.pt`, `final.pt`, `.npz`) — a saved copy of a policy's learned numbers. The deliverable.
 - **Seed** — the random-number starting point. "Seed 11, 200 serves" means the same 200 serves every time, so two
-  policies can be compared fairly. Training seeds (s0, s1, …) are independent training runs of the same recipe.
+  policies can be compared fairly. Serve k of a run is drawn from seed + k, so two seeds closer together than the
+  number of serves share most of their serves — the old 11/7/3 sets shared 196 of 200 (found 2026-08-29). The
+  scoreboard sets are now seeds 11 / 2000 / 4000. Training seeds (s0, s1, …) are independent training runs of the
+  same recipe.
 - **Observation / obs** — what the policy is given each step: joint angles and speeds, ball position and velocity,
   paddle pose. **Action** — what it returns: 29 desired joint angles.
 - **Runtime contract** — the written list of observation and action signals, units and rate that HIM and the
@@ -92,3 +95,24 @@ Plain definitions, each tied to what it means *here*. Read top to bottom once; t
   joints (`sim/gmr_bvh_to_g1_headless.py`). The motion prior for the future whole-body controller.
 - **Orbbec / ball tracker** — the RGB-D cameras and our detector that find the ball in real footage
   (`sim/ball_detect.py`, `sim/ball_3d.py`). The perception front-end for the real robot.
+
+## Hitter v2 (added 2026-08-29)
+
+- **Swing library / template** — five preset swing shapes for the hitter (`drive` = the original, `block`, `lift`,
+  `punch`, `crossbody`), each a full set of 17 numbers: hitting-plane depth, speed cap, return flight time, paddle
+  face tilt, swing direction, timing window, backswing, reach box. `tt_sim/policies/ik_hitter.py`.
+- **Gate / blend** — four extra per-serve numbers that mix the templates into `drive`. A gate at 0 adds nothing;
+  a gate at 1 makes the swing 80 % that template, 20 % `drive`. So "all gates at 0" is exactly the old hitter.
+- **v1 / v2 parameter space** — v1: the ten original per-serve knobs (70.5 % policy). v2: those ten plus ten more
+  (four gates, coarse plane depth, reach expansion, face-vs-position weight, timing scale, swing-direction tilt).
+- **Warm start** — beginning a v2 training run from the trained v1 network: the ten old knobs keep their learned
+  values, the ten new ones start at "do nothing", so day one of v2 is the 70.5 % policy, not a blank slate.
+- **Contextual bandit** — what the parameter trainer is: one decision per serve, one reward per decision, no
+  sequence of steps to assign credit across. Simpler and steadier than PPO over 150 steps.
+- **Deterministic checkpoint selection (`--det-eval-episodes`)** — scoring the mean action on a fixed serve set
+  during training and keeping the checkpoint with the best *scored* rate, instead of the noisy training rate.
+- **Exploration std (`--log-std-init`, `--log-std-init-new`)** — how far training wobbles each knob to try
+  alternatives. Too big and every rollout is a bad swing (measured: std 0.37 on the ten new knobs drops the
+  70 % policy to 22 % during training); too small and it learns slowly.
+- **Scoreboard tool (`tt_sim.rl.eval_seeds`)** — one command that scores any checkpoint on seeds 11/7/3
+  (200 serves each) and prints the table used in every status.

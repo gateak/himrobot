@@ -79,6 +79,10 @@ EXPERT_FEATURES_DIM = 29  # reserved for Task R's expert-action block
 MAX_EPISODE_STEPS = 150  # 3s @ 50Hz, matches tt_sim.evaluate.EPISODE_CONTROL_STEPS
 REACTION_MOVE_M = 0.02  # unused here (scene.py owns reaction_latency_ms); kept for reference
 INTERCEPT_BONUS_RADIUS_M = 0.05  # "paddle within 5cm of p_int" bonus threshold
+# Hand copy of tt_sim.evaluate.TARGET_HIT_RADIUS_M, kept here so the RL
+# package does not import the evaluator CLI; test_rl_env pins the two equal.
+# The optional target_hit_bonus (and param_train.deterministic_eval) use it.
+TARGET_HIT_RADIUS_M = 0.30
 
 
 def obs_dim(intercept_features: bool = False, expert_features: bool = False) -> int:
@@ -137,7 +141,9 @@ class VecTT:
                  obs_delay_steps: int = 0, randomize: bool = True,
                  intercept_features: bool = False, intercept_reward: float = 0.0,
                  vel_penalty: float = 0.0005, legal_bonus: float = 5.0,
-                 obs_noise: float = 0.0, joint_noise: float = 0.0):
+                 obs_noise: float = 0.0, joint_noise: float = 0.0,
+                 aim_bonus: float = 3.0, aim_sigma: float = 0.5,
+                 target_hit_bonus: float = 0.0):
         assert n_envs >= 1
         assert obs_delay_steps >= 0
         assert obs_noise >= 0.0 and joint_noise >= 0.0
@@ -166,6 +172,12 @@ class VecTT:
         # so PPO learns to swing slower; the v2 box runs use 1e-5 with legal_bonus 10.
         self.vel_penalty = float(vel_penalty)
         self.legal_bonus = float(legal_bonus)
+        # Aim knobs, defaulting to the coefficients _reward_and_done used to
+        # hard-code: aim_bonus 3.0 / aim_sigma 0.5 reproduce the old term
+        # exactly, and target_hit_bonus 0.0 adds nothing.
+        self.aim_bonus = float(aim_bonus)
+        self.aim_sigma = float(aim_sigma)
+        self.target_hit_bonus = float(target_hit_bonus)
         self.obs_dim = obs_dim(intercept_features=self.intercept_features)
         self.act_dim = ACT_DIM
 
@@ -371,7 +383,13 @@ class VecTT:
             reward += getattr(self, "legal_bonus", 5.0)
             err = scene.landing_error_m(events, self._targets[i])
             if not np.isnan(err):
-                reward += 3.0 * float(np.exp(-err ** 2 / 0.5 ** 2))
+                # getattr with the v1 constants: see intercept_reward's comment
+                # -- VecTT subclasses that skip super().__init__() inherit this.
+                sigma = getattr(self, "aim_sigma", 0.5)
+                reward += getattr(self, "aim_bonus", 3.0) * float(np.exp(-err ** 2 / sigma ** 2))
+                step_bonus = getattr(self, "target_hit_bonus", 0.0)
+                if step_bonus > 0.0 and err <= TARGET_HIT_RADIUS_M:
+                    reward += step_bonus
             self._legal_latched[i] = True
 
         da = action - self._prev_action[i]

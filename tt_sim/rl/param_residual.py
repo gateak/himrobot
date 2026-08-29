@@ -27,7 +27,12 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 from tt_sim import scene
-from tt_sim.policies.ik_hitter import SERVE_PARAM_NOMINAL, IKHitterPolicy
+from tt_sim.obs_perturb import ObsPerturber
+from tt_sim.policies.ik_hitter import (
+    SERVE_PARAM_NOMINAL,
+    SERVE_PARAM_NOMINAL_V2,
+    IKHitterPolicy,
+)
 from tt_sim.rl.demos import target_to_action
 from tt_sim.rl.env import MAX_EPISODE_STEPS, VecTT, flatten_obs, map_action
 from tt_sim.rl.intercept import predict_intercept
@@ -66,6 +71,59 @@ PARAM_SPECS: tuple[tuple[str, str, float], ...] = (
 PARAM_NAMES = tuple(name for name, _kind, _bound in PARAM_SPECS)
 K_PARAMS = len(PARAM_SPECS)
 assert set(PARAM_NAMES) <= set(SERVE_PARAM_NOMINAL), "PARAM_SPECS names must be hitter serve params"
+
+# ---------------------------------------------------------------------------
+# "hitter v2" action space. The ten v1 entries come first, identical in name,
+# kind and bound, so a v1 checkpoint's stored specs still decode exactly as
+# they do today and --resume-from a v1 run into a v2 run is meaningful
+# coordinate for coordinate. The ten additions drive the swing library and the
+# reach expansion in tt_sim.policies.ik_hitter (see SERVE_PARAM_NOMINAL_V2):
+#   gate_*              blend weight toward one non-drive swing template; only
+#                       u > 0 has any effect (the blend rectifies), so u = 0 is
+#                       exactly the drive template = the v1 hitter
+#   x_hit_coarse        +-30 cm of hitting-plane depth; x_hit_offset keeps its
+#                       exact v1 meaning as the +-8 cm fine trim on top of it
+#   reach_expand_y/z    0..1 lerp of the Cartesian reach clamp toward the
+#                       measured collision-free envelope; negatives clip to 0
+#   normal_weight_scale trades blade-face accuracy against position accuracy in
+#                       the DLS objective (down = position priority = more
+#                       usable lateral reach near the workspace edge)
+#   swing_window_scale  0.5x-2x on t_pre/speed_buffer/t_follow together (dwell)
+#   swing_dir_pitch     +-0.6 rad on the swing direction, independent of face
+# ---------------------------------------------------------------------------
+PARAM_SPECS_V2: tuple[tuple[str, str, float], ...] = PARAM_SPECS + (
+    ("gate_block", "add", 1.0),
+    ("gate_lift", "add", 1.0),
+    ("gate_punch", "add", 1.0),
+    ("gate_crossbody", "add", 1.0),
+    ("x_hit_coarse", "add", 0.30),
+    ("reach_expand_y", "add", 1.0),
+    ("reach_expand_z", "add", 1.0),
+    ("normal_weight_scale", "mul", 16.0),
+    ("swing_window_scale", "mul", 2.0),
+    ("swing_dir_pitch", "add", 0.60),
+)
+PARAM_NAMES_V2 = tuple(name for name, _kind, _bound in PARAM_SPECS_V2)
+K_PARAMS_V2 = len(PARAM_SPECS_V2)
+assert set(PARAM_NAMES_V2) <= set(SERVE_PARAM_NOMINAL_V2), "PARAM_SPECS_V2 names must be hitter serve params"
+
+# Selectable action spaces. DEFAULT_PARAM_SPACE stays "v1" so every existing
+# recipe reproduces without a flag.
+PARAM_SPACES: dict[str, tuple[tuple[str, str, float], ...]] = {
+    "v1": PARAM_SPECS,
+    "v2": PARAM_SPECS_V2,
+}
+DEFAULT_PARAM_SPACE = "v1"
+
+
+def space_name_for(specs) -> str:
+    """The registry key whose specs match ``specs``, or "custom"."""
+    target = tuple(tuple(s) for s in specs)
+    for name, known in PARAM_SPACES.items():
+        if tuple(tuple(s) for s in known) == target:
+            return name
+    return "custom"
+
 
 # Serve features: ball.position(3), ball.velocity(3), predicted intercept
 # p_int(3), t_int(1), valid(1), aim target x/y(2). Read once, at the first
@@ -168,24 +226,38 @@ class VecTTParam(VecTT):
 
     def __init__(self, n_envs: int, seed: int = 0, params: dict | None = None,
                  decide_fn=None, randomize: bool = True,
-                 vel_penalty: float = 0.0005, legal_bonus: float = 5.0):
+                 vel_penalty: float = 0.0005, legal_bonus: float = 5.0,
+                 param_specs=PARAM_SPECS, obs_noise: float = 0.0, joint_noise: float = 0.0,
+                 obs_delay_steps: int = 0, **env_kwargs):
+        assert not env_kwargs.get("intercept_features") and not env_kwargs.get("intercept_reward"), (
+            "VecTTParam does not implement the intercept block: step() builds the flat obs without it "
+            "and calls _reward_and_done without an intercept argument")
         self.decide_fn = decide_fn
+        self.param_specs = tuple(tuple(spec) for spec in param_specs)
         self._hitters = [IKHitterPolicy() for _ in range(n_envs)]
         self._decisions: list[dict] = [{} for _ in range(n_envs)]
         self._features = np.zeros((n_envs, FEATURE_DIM), dtype=np.float32)
+        # Sensor noise / latency on the obs dict the hitter and the feature
+        # extractor see -- the same knobs tt_sim.evaluate applies at scoring
+        # time. All off by default: no draw, the env's own dict is used.
+        self._perturbers = [ObsPerturber(obs_noise, joint_noise, obs_delay_steps, seed=seed + i)
+                            for i in range(n_envs)]
         super().__init__(n_envs=n_envs, seed=seed, params=params, randomize=randomize,
-                         vel_penalty=vel_penalty, legal_bonus=legal_bonus)
+                         vel_penalty=vel_penalty, legal_bonus=legal_bonus,
+                         obs_noise=obs_noise, joint_noise=joint_noise,
+                         obs_delay_steps=obs_delay_steps, **env_kwargs)
 
     def _reset_one(self, i: int) -> np.ndarray:
         flat = super()._reset_one(i)
         env = self.envs[i]
-        obs = env._get_obs()  # pure read of the state env.reset() just wrote
+        # Pure read of the state env.reset() just wrote, through this slot's perturber.
+        obs = self._perturbers[i].reset(env._get_obs())
         self._hitters[i].reset({"serve": None, "params": env.params})
         feats = serve_features(obs, self._targets[i])
         self._features[i] = feats
         decision = dict(self.decide_fn(feats)) if self.decide_fn is not None else {}
-        u = decision.get("u", np.zeros(K_PARAMS))
-        self._hitters[i].set_serve_params(unsquash_to_params(u))
+        u = decision.get("u", np.zeros(len(self.param_specs)))
+        self._hitters[i].set_serve_params(unsquash_to_params(u, self.param_specs))
         self._decisions[i] = decision
         return flat
 
@@ -196,7 +268,7 @@ class VecTTParam(VecTT):
         infos: list[dict] = [None] * self.n_envs
 
         for i in range(self.n_envs):
-            raw = self.envs[i]._get_obs()
+            raw = self._perturbers[i].step(self.envs[i]._get_obs())
             action = target_to_action(self._hitters[i].act(raw))
             obs, events = self.envs[i].step(map_action(action, self._jnt_range))
 
@@ -219,7 +291,7 @@ class VecTTParam(VecTT):
                 delayed = self._reset_one(i)  # auto-reset: new serve, new parameter draw
             else:
                 self._prev_action[i] = action
-                flat = flatten_obs(obs, action, self._targets[i], obs["time_s"])
+                flat = self._flat_obs(obs, action, self._targets[i], obs["time_s"])  # == flatten_obs at zero noise
                 self._obs_fifo[i].append(flat)
                 delayed = self._obs_fifo[i][0]
 
@@ -241,17 +313,25 @@ def hitter_from_u(u: np.ndarray, specs=PARAM_SPECS, **hitter_kwargs) -> IKHitter
 
 
 def save_checkpoint(path: str, model: ParamActorCritic, feat_rms: RunningMeanStd,
-                    episodes: int, extra: dict | None = None) -> None:
+                    episodes: int, extra: dict | None = None,
+                    param_specs=None) -> None:
     """Everything ParamResidualPolicy needs: weights, the feature-normalizer
-    stats, and the parameter ranges this run was trained under."""
+    stats, and the parameter ranges this run was trained under. ``param_specs``
+    must be the space the run actually used -- writing the module's current
+    PARAM_SPECS unconditionally would silently mislabel every non-v1 run."""
+    if param_specs is None:
+        param_specs = PARAM_SPACES.get(DEFAULT_PARAM_SPACE, PARAM_SPECS)
+    param_specs = tuple(tuple(spec) for spec in param_specs)
+    assert len(param_specs) == model.k_params, (len(param_specs), model.k_params)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     ckpt = {
         "model_state": model.state_dict(),
         "feature_dim": model.feature_dim,
         "k_params": model.k_params,
         "hidden": model.hidden,
-        "param_specs": [list(spec) for spec in PARAM_SPECS],
-        "param_names": list(PARAM_NAMES),
+        "param_specs": [list(spec) for spec in param_specs],
+        "param_names": [str(spec[0]) for spec in param_specs],
+        "param_space": space_name_for(param_specs),
         "obs_rms_mean": feat_rms.mean,
         "obs_rms_var": feat_rms.var,
         "obs_rms_count": feat_rms.count,
@@ -276,6 +356,8 @@ def load_checkpoint(path: str, device: torch.device):
     feat_rms.count = ckpt["obs_rms_count"]
     specs = tuple((name, kind, float(bound))
                   for name, kind, bound in ckpt.get("param_specs", PARAM_SPECS))
+    # param_space is metadata only -- the specs above are what actually decodes.
+    model.param_space = str(ckpt.get("param_space", space_name_for(specs)))
     return model, feat_rms, specs
 
 
@@ -286,6 +368,8 @@ def default_target(params: dict | None = None) -> tuple[float, float]:
 
 __all__ = [
     "PARAM_SPECS", "PARAM_NAMES", "K_PARAMS", "FEATURE_DIM",
+    "PARAM_SPECS_V2", "PARAM_NAMES_V2", "K_PARAMS_V2", "PARAM_SPACES",
+    "DEFAULT_PARAM_SPACE", "space_name_for",
     "ParamActorCritic", "VecTTParam", "serve_features", "unsquash_to_params",
     "hitter_from_u", "default_target", "save_checkpoint", "load_checkpoint",
 ]

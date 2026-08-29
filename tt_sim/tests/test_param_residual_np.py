@@ -54,10 +54,25 @@ def test_numpy_policy_matches_torch_policy(tmp_path):
         np.testing.assert_allclose(x, y, rtol=0, atol=2e-3)  # float32 matmul order differs numpy vs torch; IK amplifies to ~1e-4 rad
 
 
-def test_shipped_weights_load_when_present():
-    from tt_sim.policies.param_residual_np import DEFAULT_WEIGHTS, NumpyParamResidualPolicy
+def test_shipped_weights_load_and_decode():
+    """Both shipped policies are committed files: the v1 s3 (10 knobs) and the
+    v2 wa0 (20 knobs, placement-trained). Each must load, decode every knob
+    inside its bound on real serves, and the default must be the v2 file."""
+    from tt_sim.policies import param_residual_np as npr
+    from tt_sim.scene import TableTennisEnv
 
-    if not os.path.isfile(DEFAULT_WEIGHTS):
-        pytest.skip("no shipped weights")
-    pol = NumpyParamResidualPolicy()
-    assert len(pol.names) == 10
+    assert os.path.isfile(npr.S3_WEIGHTS) and os.path.isfile(npr.V2_WA0_WEIGHTS)
+    assert npr.DEFAULT_WEIGHTS == npr.V2_WA0_WEIGHTS
+    for path, n_names, space in ((npr.S3_WEIGHTS, 10, "v1"), (npr.V2_WA0_WEIGHTS, 20, "v2")):
+        pol = npr.NumpyParamResidualPolicy(path)
+        assert len(pol.names) == n_names and pol.param_space == space
+        env = TableTennisEnv(seed=0, params={})
+        for seed in (2000, 2001):
+            obs = env.reset(serve=scene.sample_serve(np.random.default_rng(seed), env.params))
+            pol.reset({"params": env.params})
+            pol.act(obs)
+            for name, kind, bound in zip(pol.names, pol.kinds, pol.bounds):
+                v = pol.last_params[name]
+                assert np.isfinite(v)
+                assert abs(v) <= bound + 1e-9 if kind == "add" else 1.0 / bound - 1e-9 <= v <= bound + 1e-9
+    assert len(npr.NumpyParamResidualPolicy().names) == 20
