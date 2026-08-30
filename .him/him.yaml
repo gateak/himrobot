@@ -5,9 +5,12 @@ metadata:
   version: 0.1.0
   display_name: himrobot G1 table-tennis policy
   description:
-    Humanoid table-tennis policy for HIM Arena on the Unitree G1 (29 DoF). Ships
-    the stdio policy server (HoldPolicy fallback, BCPolicy when a checkpoint is
-    present) and the Rokoko-mocap-to-G1 retargeting pipeline.
+    Humanoid table-tennis policy for HIM Arena on the Unitree G1 (29 DoF,
+    fixed pelvis, MuJoCo). The evaluate entrypoints run the shipped per-serve
+    parameter-residual policy (73.5 % legal returns, 28.5 % target hits on
+    200-serve sets) -- 10 serves with video, or 1000 serves of metrics. Also
+    ships the stdio policy server and the Rokoko-mocap-to-G1 retargeting
+    pipeline.
   authors:
     - name: Akbar Sherzod Khamidov
       url: null
@@ -63,6 +66,31 @@ entrypoints:
     network_policy: none
     secret_refs: []
     timeout_seconds: 1800
+  - id: evaluate-1000
+    purpose: evaluation
+    execution_mode: python
+    command:
+      - python
+      - -m
+      - tt_sim.evaluate
+      - --policy
+      - tt_sim.policies.param_residual_np:NumpyParamResidualPolicy
+      - --trials
+      - "1000"
+      - --seed
+      - "2000"
+      - --no-trajectory
+    working_directory: .
+    image_ref: null
+    image_digest: null
+    runtime_interface_ref: .him/contracts/tt-runtime.json
+    process_graph_ref: null
+    training_pipeline_ref: null
+    endpoint_profile_ref: null
+    resource_class: cpu-standard
+    network_policy: none
+    secret_refs: []
+    timeout_seconds: 3600
   - id: evaluate-hitter
     purpose: evaluation
     execution_mode: python

@@ -37,6 +37,14 @@ is a legacy flow being cleaned up; the core upload loop should be stable — ret
 failure. Still open: the challenge version id, the evaluator's observation contract (ball state? base pose?), control
 rate, trial count, and whether the challenge scene is free-standing (Akbar: "the bot needs to stand and move").
 
+**What "submitting" is (2026-08-30, from Akbar reading the Arena page).** The table-tennis challenge page shows no
+challenge version, interface or trial count; Ethan's own entry is a package-reported run: "Policy-driven fixed-base
+MuJoCo demo for a 29-DoF Unitree G1 on one qualified center-lane feed, followed by measured 1,000-feed simulation
+metrics. Simulation only; physical commissioning and the >=50 human-rally goal remain unverified." So the current
+path is `him push` + `him run --entrypoint evaluate` (10 serves, video) and `evaluate-1000` (1000 serves, seed 2000,
+metrics), not `him arena submit`. Standing/moving is a goal Akbar sets, not a published requirement; Isaac Lab has
+not been used yet (`scripts/gpu_box_setup.sh` is ready, never run).
+
 **Serve sets (found 2026-08-29).** `tt_sim.evaluate` draws serve k from `default_rng(seed + k)`, so seeds 11 / 7 / 3
 share 192–196 of 200 serves: every "confirmed on three independent sets" statement before this date was one set
 measured three times. Independent sets need seeds ≥ `--trials` apart; the scoreboard is now **seeds 11 / 2000 / 4000**
