@@ -92,6 +92,15 @@ path is `him push` + `him run --entrypoint evaluate` (10 serves, video) and `eva
 metrics), not `him arena submit`. Standing/moving is a goal Akbar sets, not a published requirement; Isaac Lab has
 not been used yet (`scripts/gpu_box_setup.sh` is ready, never run).
 
+**Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
+settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene
+reach ceiling ~81 % is effectively reached), and placement broke open: **s0/final = 77.0 % legal / 49.5 % target hits /
+0.28 m** on seeds 11/2000/4000 (s1/final 77.5/46.0/0.31). **Shipped:** the `evaluate`/`evaluate-1000` entrypoints now run
+`tt_sim.evaluate_stance` (sets `TT_ROBOT_Y=-0.10` + the v3 weights before the scene import) with
+`assets/policies/param_residual_v3_s0final.npz`; `param_residual_v3_s1best.npz` is the legal-max alternative
+(79.8/30.7/0.39). The welded default scene, `tt_sim.evaluate`, and every parity fixture are unchanged.
+Full log `work/tt/rl/v3_stance/RESULT.md`.
+
 **Serve sets (found 2026-08-29).** `tt_sim.evaluate` draws serve k from `default_rng(seed + k)`, so seeds 11 / 7 / 3
 share 192–196 of 200 serves: every "confirmed on three independent sets" statement before this date was one set
 measured three times. Independent sets need seeds ≥ `--trials` apart; the scoreboard is now **seeds 11 / 2000 / 4000**

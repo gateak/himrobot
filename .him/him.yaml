@@ -6,9 +6,10 @@ metadata:
   display_name: himrobot G1 table-tennis policy
   description:
     Humanoid table-tennis policy for HIM Arena on the Unitree G1 (29 DoF,
-    fixed pelvis, MuJoCo). The evaluate entrypoints run the shipped per-serve
-    parameter-residual policy (73.5 % legal returns, 28.5 % target hits on
-    200-serve sets) -- 10 serves with video, or 1000 serves of metrics. Also
+    fixed pelvis, MuJoCo). The evaluate entrypoints run the shipped v3
+    parameter-residual policy at the measured stance (77 % legal returns,
+    49.5 % target hits, 0.28 m landing error on 200-serve sets) -- 10 serves
+    with video, or 1000 serves of metrics. Also
     ships the stdio policy server and the Rokoko-mocap-to-G1 retargeting
     pipeline.
   authors:
@@ -49,7 +50,7 @@ entrypoints:
     command:
       - python
       - -m
-      - tt_sim.evaluate
+      - tt_sim.evaluate_stance
       - --policy
       - tt_sim.policies.param_residual_np:NumpyParamResidualPolicy
       - --trials
@@ -72,7 +73,7 @@ entrypoints:
     command:
       - python
       - -m
-      - tt_sim.evaluate
+      - tt_sim.evaluate_stance
       - --policy
       - tt_sim.policies.param_residual_np:NumpyParamResidualPolicy
       - --trials
