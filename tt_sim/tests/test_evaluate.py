@@ -34,21 +34,26 @@ def test_hold_policy_two_trials_writes_valid_outputs(tmp_path, monkeypatch):
     assert len(first["action"]) == 29
 
     # evaluator.json schema: authoritative true, this-proxy's evaluator id,
-    # all 6 required metric keys, and a per_trial entry per trial.
+    # all 7 required metric keys, and a per_trial entry per trial. "falls" is
+    # additive and always present; it only ever counts above 0 under
+    # --free-base (see tt_sim/tests/test_free_base.py).
     with open(evaluator_path) as fh:
         doc = json.load(fh)
     assert doc["authoritative"] is True
     assert doc["evaluator"] == "himrobot-local-proxy@0.1.0"
     assert "proxy" in doc["note"].lower()
-    for key in ("legal_return_rate", "target_hit_rate", "landing_error_m", "reaction_latency_ms", "n_trials", "contacts"):
+    for key in ("legal_return_rate", "target_hit_rate", "landing_error_m", "reaction_latency_ms",
+                "n_trials", "contacts", "falls"):
         assert key in doc["metrics"], key
     assert doc["metrics"]["n_trials"] == 2
     assert len(doc["per_trial"]) == 2
+    assert doc["free_base"] is False
 
     # HoldPolicy never swings -> never a legal return, and never a target hit.
     assert doc["metrics"]["legal_return_rate"] == 0.0
     assert doc["metrics"]["target_hit_rate"] == 0.0
     assert doc["metrics"]["contacts"] == 0
+    assert doc["metrics"]["falls"] == 0  # welded pelvis: it cannot fall
     assert doc["metrics"]["landing_error_m"] is None  # no legal returns to average
     for trial in doc["per_trial"]:
         assert trial["legal_return"] is False

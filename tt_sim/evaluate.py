@@ -2,7 +2,7 @@
 
     python -m tt_sim.evaluate --policy {hold,ik_hitter,module.path:ClassName}
         [--trials N] [--seed S] [--params JSON] [--out DIR] [--video] [--no-trajectory]
-        [--obs-noise M] [--joint-noise RAD] [--obs-delay-steps K]
+        [--obs-noise M] [--joint-noise RAD] [--obs-delay-steps K] [--free-base] [--base-aware]
 
 Runs ``--trials`` served-ball episodes against the named policy in
 tt_sim.scene.TableTennisEnv and writes:
@@ -14,6 +14,13 @@ tt_sim.scene.TableTennisEnv and writes:
                                         params, metrics, per_trial}
     <media_dir>/trial_<k>.mp4          per-trial video (only with --video)
     <media_dir>/summary.mp4            all trials concatenated (--video)
+
+``--free-base`` unwelds the pelvis (tt_sim.scene's free-base contract): the
+robot must stand on its own, ``metrics["falls"]`` counts the trials whose
+pelvis went down, and ``evaluator.json`` records ``"free_base": true``.
+Default off — the scored scene is the welded one, and its numbers are
+unchanged by this flag existing. ``metrics["falls"]`` is always present and
+reads 0 on the welded scene.
 
 Where each of candidate_dir/evaluation_dir/media_dir is the matching
 HIM_CANDIDATE_OUTPUT / HIM_EVALUATION_OUTPUT / HIM_MEDIA_OUTPUT env var
@@ -204,6 +211,11 @@ def run_trial(
 
 def aggregate_metrics(per_trial: list[dict], n_trials: int) -> dict:
     contacts = sum(1 for t in per_trial if t["events"].get("contact_paddle"))
+    # Additive, always present: trials whose pelvis fell (free base only —
+    # the welded scene never emits events["fell"], so this reads 0 there).
+    # Diagnostic; no other metric depends on it. See tt_sim.scene's free-base
+    # contract.
+    falls = sum(1 for t in per_trial if t["events"].get("fell"))
     legal = [t["legal_return"] for t in per_trial]
     hits = [t["target_hit"] for t in per_trial]
     errors = [t["landing_error_m"] for t in per_trial if t["legal_return"] and t["landing_error_m"] is not None]
@@ -216,6 +228,7 @@ def aggregate_metrics(per_trial: list[dict], n_trials: int) -> dict:
         "reaction_latency_ms": (sum(latencies) / len(latencies)) if latencies else None,
         "n_trials": n_trials,
         "contacts": contacts,
+        "falls": falls,
     }
 
 
@@ -235,9 +248,18 @@ def main(argv: list[str] | None = None) -> dict:
                         help="std (rad) of Gaussian noise on the joint readings the policy sees; velocity gets 10x")
     parser.add_argument("--obs-delay-steps", type=int, default=0,
                         help="the policy sees observations this many control steps (20 ms each) old")
+    parser.add_argument("--base-aware", action="store_true",
+                        help="free base only: the hitter re-expresses its IK target through the measured pelvis pose "
+                             "(sets TT_BASE_AWARE=1 for the policy; default off -- measured worse without a balance "
+                             "controller). Recorded in evaluator.json as base_aware.")
+    parser.add_argument("--free-base", action="store_true",
+                        help="unweld the pelvis: the robot must stand on its own (default off — the "
+                             "scored scene is the welded one). See tt_sim.scene's free-base contract")
     args = parser.parse_args(argv)
 
     params = {**DEFAULT_PARAMS, **json.loads(args.params)}
+    if args.base_aware:
+        os.environ["TT_BASE_AWARE"] = "1"  # before the policy builds its IKHitterPolicy
     policy = _load_policy(args.policy)
     candidate_dir, evaluation_dir, media_dir = _resolve_output_dirs(args.out)
     os.makedirs(candidate_dir, exist_ok=True)
@@ -245,7 +267,7 @@ def main(argv: list[str] | None = None) -> dict:
     if args.video:
         os.makedirs(media_dir, exist_ok=True)
 
-    env = TableTennisEnv(seed=args.seed, params=params)
+    env = TableTennisEnv(seed=args.seed, params=params, fixed_base=not args.free_base)
     target = target_point(params.get("target_zone", DEFAULT_PARAMS["target_zone"]),
                            params.get("target_depth", DEFAULT_PARAMS["target_depth"]))
 
@@ -299,6 +321,8 @@ def main(argv: list[str] | None = None) -> dict:
         "params": params,
         "policy_obs": {"obs_noise": args.obs_noise, "joint_noise": args.joint_noise,
                        "delay_steps": args.obs_delay_steps},
+        "free_base": bool(args.free_base),
+        "base_aware": bool(args.base_aware),
         "metrics": metrics,
         "per_trial": per_trial,
         "wall_time_s": time.time() - start,

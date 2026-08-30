@@ -22,7 +22,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 DEFAULT_SEEDS = (11, 2000, 4000)
-METRIC_KEYS = ("legal_return_rate", "target_hit_rate", "landing_error_m", "contacts")
+METRIC_KEYS = ("legal_return_rate", "target_hit_rate", "landing_error_m", "contacts", "falls")
 
 
 def _label_for(path: str) -> str:
@@ -57,11 +57,11 @@ def render_table(rows: list[dict], seeds: tuple[int, ...], trials: int) -> str:
     by_label: dict[str, dict[int, dict]] = {}
     for r in rows:
         by_label.setdefault(r["label"], {})[r["seed"]] = r
-    head = ["policy"] + [f"seed {s} legal / target / err" for s in seeds] + ["mean legal", "mean target", "mean err", "contacts"]
+    head = ["policy"] + [f"seed {s} legal / target / err" for s in seeds] + ["mean legal", "mean target", "mean err", "contacts", "falls"]
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for label, per_seed in by_label.items():
         cells = [label]
-        legal, target, errs, contacts = [], [], [], []
+        legal, target, errs, contacts, falls = [], [], [], [], []
         for s in seeds:
             r = per_seed.get(s)
             if r is None:
@@ -74,12 +74,17 @@ def render_table(rows: list[dict], seeds: tuple[int, ...], trials: int) -> str:
             if r["landing_error_m"] is not None:
                 errs.append(r["landing_error_m"])
             contacts.append(r["contacts"])
+            # falls is 0 on the welded scene and absent from an evaluator.json
+            # written before it existed; both render as 0.
+            falls.append(r.get("falls") or 0)
         mean = lambda xs: (sum(xs) / len(xs)) if xs else None  # noqa: E731
         cells += [f"**{_fmt(mean(legal), '.1f')} %**", f"{_fmt(mean(target), '.1f')} %",
-                  f"{_fmt(mean(errs), '.2f')} m", "/".join(str(c) for c in contacts)]
+                  f"{_fmt(mean(errs), '.2f')} m", "/".join(str(c) for c in contacts),
+                  "/".join(str(f) for f in falls)]
         lines.append("| " + " | ".join(cells) + " |")
     lines.append("")
-    lines.append(f"{trials} serves per seed; mean action (`tt_sim.evaluate`); contacts listed per seed.")
+    lines.append(f"{trials} serves per seed; mean action (`tt_sim.evaluate`); contacts and falls listed per seed "
+                 f"(falls is 0 unless --free-base).")
     return "\n".join(lines)
 
 
@@ -99,6 +104,11 @@ def main(argv: list[str] | None = None) -> dict:
     parser.add_argument("--joint-noise", type=float, default=0.0, help="forwarded to tt_sim.evaluate")
     parser.add_argument("--obs-delay-steps", type=int, default=0, help="forwarded to tt_sim.evaluate")
     parser.add_argument("--allow-overlap", action="store_true", help="permit seeds closer together than --trials")
+    parser.add_argument("--free-base", action="store_true",
+                        help="forwarded to tt_sim.evaluate: unweld the pelvis (the robot must stand)")
+    parser.add_argument("--base-aware", action="store_true",
+                        help="forwarded to tt_sim.evaluate: let the hitter re-express its IK target through the "
+                             "measured pelvis pose (free base only; measured worse without a balance controller)")
     args = parser.parse_args(argv)
     seeds = sorted(args.seeds)
     overlap = [(a, b) for a, b in zip(seeds, seeds[1:]) if b - a < args.trials]
@@ -107,6 +117,10 @@ def main(argv: list[str] | None = None) -> dict:
                      f"(serve k = default_rng(seed + k)); pick seeds >= {args.trials} apart or pass --allow-overlap")
     extra_args = ["--obs-noise", str(args.obs_noise), "--joint-noise", str(args.joint_noise),
                   "--obs-delay-steps", str(args.obs_delay_steps)]
+    if args.free_base:
+        extra_args.append("--free-base")
+    if args.base_aware:
+        extra_args.append("--base-aware")
 
     specs: list[dict] = []
     for path in args.ckpt:
@@ -135,7 +149,8 @@ def main(argv: list[str] | None = None) -> dict:
     with open(os.path.join(args.out, "scoreboard.json"), "w") as fh:
         json.dump({"trials": args.trials, "seeds": args.seeds, "params": json.loads(args.params),
                    "policy_obs": {"obs_noise": args.obs_noise, "joint_noise": args.joint_noise,
-                                  "delay_steps": args.obs_delay_steps}, "rows": rows}, fh, indent=1)
+                                  "delay_steps": args.obs_delay_steps},
+                   "free_base": bool(args.free_base), "base_aware": bool(args.base_aware), "rows": rows}, fh, indent=1)
     print(table)
     return {"rows": rows, "out": args.out}
 

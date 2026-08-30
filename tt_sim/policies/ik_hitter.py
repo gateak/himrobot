@@ -86,8 +86,18 @@ only the flat ``obs`` dict -- see tt_sim.policies.base):
      face-vs-position-weight, dwell and swing-direction knobs. Ten more
      per-serve scalars (SERVE_PARAM_NOMINAL_V2), every one of them the
      identity at nominal -- so all of the above still holds bit for bit.
+  7. Base-aware targeting (`to_shadow_frame`, base_aware, default off): the shadow
+     model welds the pelvis at the nominal pose, so on the free-base scene
+     (where the real pelvis drifts and can fall) a world-frame IK target
+     would be solved against the wrong pelvis. When -- and only when -- the
+     observation carries base.position/base.orientation, the blade target is
+     re-expressed through the pelvis frame first. The welded scene never
+     emits those keys, so the transform is not reached and every number
+     above is unchanged; TT_BASE_AWARE=1 (or base_aware=True) enables it.
 """
 from __future__ import annotations
+
+import os
 
 import numpy as np
 
@@ -101,6 +111,13 @@ from tt_sim.policies.base import Policy
 # ---------------------------------------------------------------------------
 BOUNCE_RESTITUTION = 0.9  # matches scene.py's calibrated ball/table restitution
 GRAVITY = 9.81
+
+
+def _quat_to_mat(quat) -> np.ndarray:
+    """wxyz quaternion (MuJoCo convention) -> 3x3 rotation matrix."""
+    m = np.zeros(9, dtype=np.float64)
+    mujoco.mju_quat2Mat(m, np.asarray(quat, dtype=np.float64))
+    return m.reshape(3, 3)
 
 
 def _predict_ball_trajectory(pos0: np.ndarray, vel0: np.ndarray,
@@ -447,6 +464,7 @@ class IKHitterPolicy(Policy):
         speed_buffer: float = 0.03,
         max_swing_speed: float = 1.0,
         serve_params: dict | None = None,
+        base_aware: bool | None = None,
     ):
         self.t_pre = t_pre
         self.t_follow = t_follow
@@ -461,6 +479,20 @@ class IKHitterPolicy(Policy):
         self.normal_eps = normal_eps
         self.w_normal = w_normal
         self.x_hit = x_hit
+        # Base-aware IK: OFF by default. Measured on the free base (600
+        # serves, work/tt/rl/free_base/RESULT.md) it fixes the paddle-belief
+        # error but doubles the falls -- the arm chasing the drifting pelvis
+        # feeds reaction torque into a robot nothing is balancing -- so it
+        # costs legal returns until a balance controller exists. It only ever
+        # engages when the observation carries base.position/base.orientation
+        # (free-base scene only); on the welded scene the transform below is
+        # never reached, so the hitter stays bit-for-bit what it was.
+        # base_aware=None reads TT_BASE_AWARE ("1" = on) once, at construction.
+        if base_aware is None:
+            base_aware = os.environ.get("TT_BASE_AWARE", "0") == "1"
+        self.base_aware = bool(base_aware)
+        self._base_nominal_pos = scene.BASE_NOMINAL_POS.copy()
+        self._base_nominal_mat = _quat_to_mat(scene.BASE_NOMINAL_QUAT)
         # Nominal until told otherwise: see SERVE_PARAM_NOMINAL_V2 / set_serve_params.
         for _name, _nominal in SERVE_PARAM_NOMINAL_V2.items():
             setattr(self, _name, float(_nominal))
@@ -551,9 +583,50 @@ class IKHitterPolicy(Policy):
                         if plan is not None else None)
         if plan is not None and window_start <= t_now <= plan["t_contact"] + plan["t_follow"]:
             p_des, n_des = self._swing_target(t_now)
+            # Short-circuits on the welded scene (no base.* keys) before any
+            # arithmetic happens: see to_shadow_frame and self.base_aware.
+            if self.base_aware and "base.position" in obs and "base.orientation" in obs:
+                p_des, n_des = self.to_shadow_frame(
+                    p_des, n_des, obs["base.position"], obs["base.orientation"])
             q_ik = self._solve_ik(q29, p_des, n_des, plan["w_normal"])
             action[IK_INDICES] = q_ik
         return action
+
+    # -- Base-aware targeting ---------------------------------------------
+    def to_shadow_frame(self, p_des: np.ndarray, n_des: np.ndarray,
+                        base_pos, base_quat) -> tuple[np.ndarray, np.ndarray]:
+        """Re-express a world-frame blade target for the shadow model.
+
+        The IK runs on a private shadow copy of the *welded* scene, whose
+        pelvis sits at the nominal pose (BASE_NOMINAL_POS/QUAT) no matter
+        where the real pelvis has drifted to. So a target computed in world
+        coordinates — from the ball, which really is in world coordinates —
+        is the wrong thing to hand it: the arm would be solved as if the
+        pelvis had never moved, and the blade would miss by the drift. (The
+        free-pelvis probe measured exactly that: an 11 cm median paddle-
+        position error at contact, 40 cm when falling.)
+
+        The fix is to ask for the target *relative to the pelvis* instead:
+        take the world target into the real pelvis frame, then put it back
+        down in the shadow model's nominal-pelvis world —
+
+            p_shadow = P0 + R0 @ R_base^T @ (p_des - p_base)
+            n_shadow =      R0 @ R_base^T @ n_des
+
+        with P0/R0 the nominal pelvis pose. R0 is the identity today; it is
+        written out anyway so a scene that stands the robot somewhere else
+        needs no change here. A base at exactly the nominal pose makes this
+        the identity, which tt_sim/tests/test_free_base.py pins.
+
+        Only the IK target moves. The ball prediction and the aim point stay
+        in world coordinates, where the ball actually is.
+        """
+        p_base = np.asarray(base_pos, dtype=np.float64)
+        r_base = _quat_to_mat(base_quat)
+        rel_pos = r_base.T @ (np.asarray(p_des, dtype=np.float64) - p_base)
+        rel_normal = r_base.T @ np.asarray(n_des, dtype=np.float64)
+        return (self._base_nominal_pos + self._base_nominal_mat @ rel_pos,
+                self._base_nominal_mat @ rel_normal)
 
     # -- Planning ----------------------------------------------------------
     def _maybe_replan(self, t_now: float, ball_pos: np.ndarray, ball_vel: np.ndarray) -> None:

@@ -116,3 +116,28 @@ Plain definitions, each tied to what it means *here*. Read top to bottom once; t
   70 % policy to 22 % during training); too small and it learns slowly.
 - **Scoreboard tool (`tt_sim.rl.eval_seeds`)** — one command that scores any checkpoint on seeds 11/7/3
   (200 serves each) and prints the table used in every status.
+
+## Free base (added 2026-08-30)
+
+- **Free base / free-standing scene** — the scene with the robot's hips *unbolted*
+  (`TableTennisEnv(fixed_base=False)`, `--free-base`): the pelvis is a real floating joint, so the G1 has to hold
+  itself up while it swings, and it can fall over. The opposite of the **fixed pelvis** scene above, which is what
+  HIM's development benchmark and every score on our scoreboard still use. The robot is stood up in exactly the
+  bolted position at the start of every serve, and the legs just hold the standing pose — it is asked to stand
+  still and swing, not to step. First scored result: the shipped policy drops from 73.5 % to 54.0 % legal returns
+  and stays upright on 81 % of serves (`work/tt/rl/free_base/RESULT.md`).
+- **Fall / stand rate (`fell`, `metrics["falls"]`)** — a serve is counted as a fall once the pelvis drops below
+  0.45 m. It is a *diagnostic only*: the episode keeps running and the scoring is untouched, so a fall costs a
+  return through the physics, never through a penalty. It latches anywhere in the 3 s episode, including after a
+  good return has already landed, so it slightly over-counts. Stand rate is the complement.
+- **Base-aware IK** — teaching the hitter where its own hips are. The hitter works out the arm angles on a private
+  "shadow" copy of the *bolted* robot, so once the real pelvis drifts or leans, its idea of where the paddle is
+  goes wrong (measured: 11 cm off, 40 cm when falling). Base-aware IK reads the pelvis pose out of the observation
+  and asks for the paddle position *relative to the hips* instead of relative to the world, which puts the blade
+  back where it was meant to be. It only switches on when the observation carries the pelvis pose, so the bolted
+  scene is untouched. Off by default: measured on the free base it halves the paddle error but doubles the falls (the arm chasing the pelvis feeds reaction torque into an unbalanced robot); `--base-aware` / `TT_BASE_AWARE=1` turns it on.
+- **The base-aware result (2026-08-30)** — it fixes the kinematics and still loses: blade-to-target error at contact
+  drops 0.167 m → 0.066 m and contacts rise, but chasing the moving pelvis keeps the arm pushing against a robot
+  that has nothing holding it up, roughly doubling the falls (19 % → 37 %) and dropping legal returns 54.0 % →
+  39.3 %. The lesson is order of operations: base-aware IK is the right kinematics and pays only once a **balance
+  controller** (the Isaac whole-body lane) absorbs the arm's reaction.
