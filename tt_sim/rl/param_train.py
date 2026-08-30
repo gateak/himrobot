@@ -13,10 +13,10 @@ bandit structure is what removes GAE, bootstrapping and per-step noise.
 Writes train_log.csv (episode, wall_s, mean_return, legal_return_rate,
 contact_rate -- each a mean over the last 200 completed episodes -- then the
 deterministic-eval columns, then the window mean of every sampled parameter
-u_<name>), best.pt at every new best, and final.pt at exit. Both checkpoints
-carry the feature-normalizer stats and the parameter ranges, and are loadable
-by tt_sim.evaluate via ``--policy tt_sim.rl.policy:ParamResidualPolicy`` with
-``TT_RL_CKPT=<path>``.
+u_<name> and of every gate's blend share blend_<gate>), best.pt at every new
+best, and final.pt at exit. Both checkpoints carry the feature-normalizer
+stats and the parameter ranges, and are loadable by tt_sim.evaluate via
+``--policy tt_sim.rl.policy:ParamResidualPolicy`` with ``TT_RL_CKPT=<path>``.
 
 best.pt selection: with ``--det-eval-episodes N`` (recommended), every
 ``--det-eval-every`` episodes the *mean* action is scored on the same N fixed
@@ -47,6 +47,7 @@ from tt_sim.rl.param_residual import (
     PARAM_SPACES,
     ParamActorCritic,
     VecTTParam,
+    load_checkpoint,
     save_checkpoint,
     serve_features,
     unsquash_to_params,
@@ -68,7 +69,7 @@ MIN_WINDOW_FOR_BEST = 20
 def bandit_update(model: ParamActorCritic, optimizer: torch.optim.Optimizer,
                   feats: np.ndarray, z: np.ndarray, old_logp: np.ndarray,
                   returns: np.ndarray, device: torch.device,
-                  entropy_coef: float = ENTROPY_COEF) -> dict:
+                  entropy_coef: float = ENTROPY_COEF) -> dict[str, float]:
     """One clipped-ratio update over a batch of completed episodes.
     ``feats`` is already normalized; ``z`` is the pre-squash sample."""
     feats_t = torch.as_tensor(feats, dtype=torch.float32, device=device)
@@ -99,9 +100,10 @@ def bandit_update(model: ParamActorCritic, optimizer: torch.optim.Optimizer,
     return stats
 
 
-def deterministic_eval(model: ParamActorCritic, feat_rms: RunningMeanStd, specs,
+def deterministic_eval(model: ParamActorCritic, feat_rms: RunningMeanStd,
+                       specs: tuple[tuple[str, str, float], ...],
                        device: torch.device, n_serves: int, seed: int,
-                       params: dict | None = None) -> dict:
+                       params: dict | None = None) -> dict[str, float]:
     """Score the MEAN action on a fixed serve set, the way tt_sim.evaluate does.
 
     Serve k is ``scene.sample_serve(np.random.default_rng(seed + k), params)``
@@ -151,7 +153,7 @@ def deterministic_eval(model: ParamActorCritic, feat_rms: RunningMeanStd, specs,
     }
 
 
-def _det_key(det: dict, select: str = "legal") -> tuple:
+def _det_key(det: dict[str, float], select: str = "legal") -> tuple[float, float, float]:
     """Checkpoint ranking. ``select="legal"``: legal rate, then target-hit
     rate, then landing error (phase one). ``select="target"``: target-hit rate
     first, then legal rate (phase two, when placement is being bought at the
@@ -226,7 +228,6 @@ def train(n_envs: int = 32, episodes: int = 20_000, seed: int = 0,
     model = ParamActorCritic(FEATURE_DIM, k_params, log_std_init=log_std_init).to(device)
     feat_rms = RunningMeanStd((FEATURE_DIM,))
     if resume_from:
-        from tt_sim.rl.param_residual import load_checkpoint
         loaded, feat_rms, _specs = load_checkpoint(resume_from, device)
         # Coordinates the checkpoint does not have start at log_std_init_new
         # (default: log_std_init); the ones it has keep their learned noise.
@@ -276,13 +277,13 @@ def train(n_envs: int = 32, episodes: int = 20_000, seed: int = 0,
                     + det_cols + [f"u_{name}" for name in names] + [f"blend_{g}" for g in gate_names])
     csv_fh.flush()
 
-    def det_cells(det: dict | None) -> list:
+    def det_cells(det: dict[str, float] | None) -> list[str]:
         if det is None:
             return [""] * len(det_cols)
         return [f"{det['legal_rate']:.2f}", f"{det['contact_rate']:.2f}",
                 f"{det['target_rate']:.2f}", f"{det['landing_error_m']:.4f}"]
 
-    window: deque = deque(maxlen=EPISODE_WINDOW)
+    window: deque[dict] = deque(maxlen=EPISODE_WINDOW)
     batch: list[dict] = []
     start = time.time()
     n_episodes = 0
@@ -395,7 +396,7 @@ def train(n_envs: int = 32, episodes: int = 20_000, seed: int = 0,
             "wall_s": time.time() - start}
 
 
-def main(argv=None) -> dict:
+def main(argv: list[str] | None = None) -> dict:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n-envs", type=int, default=32)

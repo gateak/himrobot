@@ -77,7 +77,6 @@ INTERCEPT_FEATURES_DIM = 8
 EXPERT_FEATURES_DIM = 29  # reserved for Task R's expert-action block
 
 MAX_EPISODE_STEPS = 150  # 3s @ 50Hz, matches tt_sim.evaluate.EPISODE_CONTROL_STEPS
-REACTION_MOVE_M = 0.02  # unused here (scene.py owns reaction_latency_ms); kept for reference
 INTERCEPT_BONUS_RADIUS_M = 0.05  # "paddle within 5cm of p_int" bonus threshold
 # Hand copy of tt_sim.evaluate.TARGET_HIT_RADIUS_M, kept here so the RL
 # package does not import the evaluator CLI; test_rl_env pins the two equal.
@@ -99,7 +98,7 @@ def obs_dim(intercept_features: bool = False, expert_features: bool = False) -> 
     return dim
 
 
-def _joint_range(model: "mujoco.MjModel") -> np.ndarray:
+def _joint_range(model: mujoco.MjModel) -> np.ndarray:
     ids = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n) for n in scene.JOINT_ORDER]
     return np.array([model.jnt_range[j] for j in ids], dtype=np.float64)
 
@@ -112,7 +111,8 @@ def map_action(action: np.ndarray, jnt_range: np.ndarray) -> np.ndarray:
     return np.clip(target, jnt_range[:, 0], jnt_range[:, 1])
 
 
-def flatten_obs(obs: dict, prev_action: np.ndarray, target: tuple, time_s: float) -> np.ndarray:
+def flatten_obs(obs: dict, prev_action: np.ndarray, target: tuple[float, float],
+                time_s: float) -> np.ndarray:
     """Build the flat 99-dim policy-facing observation from a
     TableTennisEnv-shaped obs dict (this is exactly the dict shape both
     TableTennisEnv.step/reset and tt_sim.evaluate hand to a Policy)."""
@@ -195,7 +195,7 @@ class VecTT:
         self._fixed_serve_rng = [np.random.default_rng(seed + 999_983 + i) for i in range(n_envs)]
 
         self._jnt_range = _joint_range(self.envs[0].model)
-        self._targets = [None] * n_envs
+        self._targets: list[tuple[float, float] | None] = [None] * n_envs
         self._prev_action = np.zeros((n_envs, ACT_DIM), dtype=np.float64)
         self._ep_len = np.zeros(n_envs, dtype=np.int64)
         self._ep_return = np.zeros(n_envs, dtype=np.float64)
@@ -203,7 +203,7 @@ class VecTT:
         self._legal_latched = np.zeros(n_envs, dtype=bool)
         self._fail_latched = np.zeros(n_envs, dtype=bool)
         self._own_bounce_count = np.zeros(n_envs, dtype=np.int64)
-        self._prev_landing = [None] * n_envs
+        self._prev_landing: list[tuple | None] = [None] * n_envs
         self._intercept_bonus_latched = np.zeros(n_envs, dtype=bool)
         self._obs_fifo = [deque(maxlen=obs_delay_steps + 1) for _ in range(n_envs)]
 
@@ -243,7 +243,7 @@ class VecTT:
         return self._last_obs.copy()
 
     # -- step --------------------------------------------------------------
-    def step(self, actions: np.ndarray):
+    def step(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict]]:
         actions = np.clip(np.asarray(actions, dtype=np.float64), -1.0, 1.0)
         assert actions.shape == (self.n_envs, ACT_DIM), actions.shape
 
@@ -323,7 +323,7 @@ class VecTT:
             out[_JOINT_VEL_SLICE] += self._noise_rng.normal(0.0, self.joint_noise * 10.0, size=n) * 0.1
         return out.astype(np.float32)
 
-    def _flat_obs(self, obs: dict, prev_action: np.ndarray, target: tuple, time_s: float,
+    def _flat_obs(self, obs: dict, prev_action: np.ndarray, target: tuple[float, float], time_s: float,
                   intercept: tuple[np.ndarray, float, bool] | None = None) -> np.ndarray:
         base = flatten_obs(obs, prev_action, target, time_s)
         if self.obs_noise > 0.0 or self.joint_noise > 0.0:

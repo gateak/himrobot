@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Sequence
 
 import mujoco
 import numpy as np
@@ -275,7 +276,7 @@ def target_point(target_zone: str = "crosscourt", target_depth: str = "deep") ->
     return (_TARGET_DEPTH_X[target_depth], _TARGET_ZONE_Y[target_zone])
 
 
-def landing_error_m(events: dict, target) -> float:
+def landing_error_m(events: dict, target: tuple[str, str] | tuple[float, float]) -> float:
     """Euclidean distance (m) from events['landing_point'] to a target.
 
     ``target`` is either a (target_zone, target_depth) string pair (see
@@ -346,7 +347,7 @@ _SERVE_RANGE_KEYS = (
 )
 
 
-def _scale_range(lo_hi: tuple, scale: float) -> tuple[float, float]:
+def _scale_range(lo_hi: Sequence[float], scale: float) -> tuple[float, float]:
     """Widen (lo, hi) symmetrically about its centre. scale=1.0 short-circuits
     to the input unchanged (not recomputed via the centre/half arithmetic) so
     the no-override, no-scale path stays bit-exact with the old fixed ranges."""
@@ -597,7 +598,7 @@ class TableTennisEnv:
 
         return self._get_obs()
 
-    def step(self, action: np.ndarray):
+    def step(self, action: np.ndarray) -> tuple[dict, dict]:
         action = np.asarray(action, dtype=np.float64)
         assert action.shape == (NUM_JOINTS,), action.shape
         self.data.ctrl[self._actuator_ids] = action
@@ -638,9 +639,8 @@ class TableTennisEnv:
         # Free base only: latch a fall the first time the pelvis drops below
         # FALL_PELVIS_Z. The episode deliberately keeps running (see the
         # module docstring) — this records what happened, it does not score it.
-        if not self.fixed_base and not ev["fell"]:
-            if float(d.xpos[self._pelvis_body_id][2]) < FALL_PELVIS_Z:
-                ev["fell"] = True
+        if not self.fixed_base and not ev["fell"] and float(d.xpos[self._pelvis_body_id][2]) < FALL_PELVIS_Z:
+            ev["fell"] = True
 
         # Reaction latency: first time the paddle has moved > 2 cm from its
         # reset pose.
@@ -654,10 +654,12 @@ class TableTennisEnv:
         for i in range(d.ncon):
             c = d.contact[i]
             g1, g2 = c.geom1, c.geom2
-            pair = {g1, g2}
-            if self._ball_geom_id not in pair:
+            if g1 == self._ball_geom_id:
+                other = g2
+            elif g2 == self._ball_geom_id:
+                other = g1
+            else:
                 continue
-            other = g2 if g1 == self._ball_geom_id else g1
             if other == self._paddle_geom_id:
                 ev["contact_paddle"] = True
             elif other == self._net_geom_id:
@@ -682,9 +684,8 @@ class TableTennisEnv:
         # crossed_net: outgoing (robot -> opponent) crossing of x=0 while
         # above net height, only counted once a paddle hit has occurred
         # (see legal_return docstring).
-        if ev["contact_paddle"] and self._prev_ball_x is not None:
-            if self._prev_ball_x < 0.0 <= ball_x:
-                ball_z = float(d.qpos[self._ball_qpos_adr + 2])
-                if ball_z - BALL_RADIUS > NET_TOP_Z:
-                    ev["crossed_net"] = True
+        if ev["contact_paddle"] and self._prev_ball_x is not None and self._prev_ball_x < 0.0 <= ball_x:
+            ball_z = float(d.qpos[self._ball_qpos_adr + 2])
+            if ball_z - BALL_RADIUS > NET_TOP_Z:
+                ev["crossed_net"] = True
         self._prev_ball_x = ball_x

@@ -105,6 +105,7 @@ only the flat ``obs`` dict -- see tt_sim.policies.base):
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -119,6 +120,9 @@ from tt_sim.policies.base import Policy
 BOUNCE_RESTITUTION = 0.9  # matches scene.py's calibrated ball/table restitution
 GRAVITY = 9.81
 
+# One forecast sample: (t, position, velocity).
+TrajSample = tuple[float, np.ndarray, np.ndarray]
+
 
 def _quat_to_mat(quat) -> np.ndarray:
     """wxyz quaternion (MuJoCo convention) -> 3x3 rotation matrix."""
@@ -128,7 +132,7 @@ def _quat_to_mat(quat) -> np.ndarray:
 
 
 def _predict_ball_trajectory(pos0: np.ndarray, vel0: np.ndarray,
-                              dt: float = 0.01, t_max: float = 1.5):
+                             dt: float = 0.01, t_max: float = 1.5) -> list[TrajSample]:
     """Explicit-Euler ball forecast: gravity + a single-bounce restitution
     model against table_top. Returns a list of (t, pos, vel) samples.
     """
@@ -170,7 +174,7 @@ def _predict_ball_trajectory(pos0: np.ndarray, vel0: np.ndarray,
 PREDICTION_DELAY_S = 0.03
 
 
-def _sample_trajectory_at(traj, t: float):
+def _sample_trajectory_at(traj: list[TrajSample], t: float) -> TrajSample:
     """Interpolate a _predict_ball_trajectory() list at time t (clamped
     to the trajectory's own span).
     """
@@ -185,7 +189,7 @@ def _sample_trajectory_at(traj, t: float):
     return traj[-1]
 
 
-def _find_intercept(traj, x_hit: float):
+def _find_intercept(traj: list[TrajSample], x_hit: float) -> TrajSample | None:
     """First (t, pos, vel) where the predicted trajectory's x crosses
     x_hit while descending in x (the ball always travels opponent -> robot,
     i.e. x monotonically decreasing, since the bounce only flips vz -- see
@@ -282,7 +286,7 @@ X_HIT = -1.20
 STANCE_Y = float(scene.ROBOT_Y)
 
 
-def _stance_y(pair):
+def _stance_y(pair: tuple[float, float]) -> tuple[float, float]:
     """Slide a (lo, hi) y box to the current stance. At the nominal stance it
     returns the argument object untouched -- no float arithmetic at all -- so
     every template dict holds the identical float objects it holds today and
@@ -417,7 +421,8 @@ REACH_MAX_Y = _stance_y((-0.90, 0.15))
 REACH_MAX_Z = (0.60, 1.45)
 
 
-def blend_shape(gates, drive: dict | None = None) -> dict:
+def blend_shape(gates: Iterable[float],
+                drive: dict[str, float] | None = None) -> dict[str, float]:
     """Rectified-gate barycentric blend over SWING_TEMPLATES. ``gates`` are the
     four non-drive gate values; only positive ones count, drive always carries
     weight 1. ``drive`` overrides the drive template (an IKHitterPolicy passes
@@ -432,7 +437,8 @@ def blend_shape(gates, drive: dict | None = None) -> dict:
     return {f: sum(wk * s[f] for wk, s in zip(weights, shapes)) / total for f in SHAPE_FIELDS}
 
 
-def reach_box(shape: dict, expand_y: float, expand_z: float):
+def reach_box(shape: dict[str, float], expand_y: float,
+              expand_z: float) -> tuple[tuple[float, float], tuple[float, float]]:
     """((y_lo, y_hi), (z_lo, z_hi)) for a blended shape, each interpolated
     ``expand_*`` of the way from the template's own clamp to REACH_MAX_*.
     Joint limits stay enforced by _solve_ik's per-iteration jnt_range clip, so
@@ -522,7 +528,7 @@ class IKHitterPolicy(Policy):
         x_hit: float = X_HIT,
         speed_buffer: float = 0.03,
         max_swing_speed: float = 1.0,
-        serve_params: dict | None = None,
+        serve_params: dict[str, float] | None = None,
         base_aware: bool | None = None,
     ):
         self.t_pre = t_pre
@@ -601,7 +607,8 @@ class IKHitterPolicy(Policy):
         assert j >= 0, name
         return j
 
-    def set_serve_params(self, params: dict | None = None, **kwargs) -> None:
+    def set_serve_params(self, params: dict[str, float] | None = None,
+                         **kwargs: float) -> None:
         """Set the whole per-serve modulation vector at once. Anything not
         named is reset to its nominal (identity) value, so one call fully
         describes the hitter's retuning for the upcoming serve; the current
@@ -638,17 +645,19 @@ class IKHitterPolicy(Policy):
 
         action = scene.STAND_POSE.copy()
         plan = self._plan
-        window_start = (plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]
-                        if plan is not None else None)
-        if plan is not None and window_start <= t_now <= plan["t_contact"] + plan["t_follow"]:
-            p_des, n_des = self._swing_target(t_now)
-            # Short-circuits on the welded scene (no base.* keys) before any
-            # arithmetic happens: see to_shadow_frame and self.base_aware.
-            if self.base_aware and "base.position" in obs and "base.orientation" in obs:
-                p_des, n_des = self.to_shadow_frame(
-                    p_des, n_des, obs["base.position"], obs["base.orientation"])
-            q_ik = self._solve_ik(q29, p_des, n_des, plan["w_normal"])
-            action[IK_INDICES] = q_ik
+        if plan is None:
+            return action
+        window_start = plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]
+        if not window_start <= t_now <= plan["t_contact"] + plan["t_follow"]:
+            return action
+
+        p_des, n_des = self._swing_target(t_now)
+        # Short-circuits on the welded scene (no base.* keys) before any
+        # arithmetic happens: see to_shadow_frame and self.base_aware.
+        if self.base_aware and "base.position" in obs and "base.orientation" in obs:
+            p_des, n_des = self.to_shadow_frame(
+                p_des, n_des, obs["base.position"], obs["base.orientation"])
+        action[IK_INDICES] = self._solve_ik(q29, p_des, n_des, plan["w_normal"])
         return action
 
     # -- Base-aware targeting ---------------------------------------------
@@ -691,6 +700,9 @@ class IKHitterPolicy(Policy):
     def _maybe_replan(self, t_now: float, ball_pos: np.ndarray, ball_vel: np.ndarray) -> None:
         plan = self._plan
         if plan is not None:
+            # Nested on purpose: the flat elif form diverges from this one when
+            # t_now is NaN (stale plan kept instead of cleared). Unreachable
+            # from the sim clock, but this file's contract is exactness.
             if t_now < plan["t_contact"] + plan["t_follow"]:
                 if t_now >= plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]:
                     return  # mid-swing: stay committed, don't retarget
@@ -777,7 +789,7 @@ class IKHitterPolicy(Policy):
                            t_follow=t_follow, backswing=shape["backswing"],
                            w_normal=w_normal)
 
-    def _swing_target(self, t_now: float):
+    def _swing_target(self, t_now: float) -> tuple[np.ndarray, np.ndarray]:
         """Paddle-centre target trajectory.
 
         The core of the swing is a single constant-velocity line, target

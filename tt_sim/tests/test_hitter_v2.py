@@ -184,7 +184,7 @@ def test_each_template_runs_a_full_episode_cleanly(name):
 @needs_torch
 @pytest.mark.parametrize("name", TEMPLATE_ORDER[1:])
 def test_each_gate_drives_a_full_episode_cleanly(name):
-    """The same, through the action space the policy actually has."""
+    """Finite actions through the action space the policy actually has."""
     u = np.zeros(pr.K_PARAMS_V2)
     u[pr.PARAM_NAMES_V2.index(f"gate_{name}")] = 1.0
     actions = roll_actions(pr.hitter_from_u(u, pr.PARAM_SPECS_V2), seed=0, steps=200)
@@ -358,9 +358,9 @@ def test_checkpoints_record_the_space_they_were_trained_with(tmp_path):
         assert loaded["param_space"] == space
         assert tuple(tuple(s) for s in loaded["param_specs"]) == specs
 
-        _model, _rms, decoded = pr.load_checkpoint(path, torch.device("cpu"))
+        loaded_model, _rms, decoded = pr.load_checkpoint(path, torch.device("cpu"))
         assert decoded == specs
-        assert _model.param_space == space
+        assert loaded_model.param_space == space
 
 
 @needs_torch

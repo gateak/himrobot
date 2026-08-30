@@ -136,7 +136,7 @@ class VecTTResidual(VecTT):
         return self._widen_reset(i)
 
     # -- step --------------------------------------------------------------
-    def step(self, actions: np.ndarray):
+    def step(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict]]:
         """``actions`` is a_rl, the RL policy's own [-1,1]^29 action --
         combined with each env's cached expert action (see class
         docstring) before being sent to tt_sim.rl.env.map_action."""

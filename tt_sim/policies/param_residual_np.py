@@ -26,7 +26,7 @@ V2_WA0_WEIGHTS = os.path.join(_REPO, "assets", "policies", "param_residual_v2_wa
 DEFAULT_WEIGHTS = V2_WA0_WEIGHTS  # what the package's evaluate entrypoint runs
 
 
-def serve_features(obs: dict, target: tuple) -> np.ndarray:
+def serve_features(obs: dict, target: tuple[float, float]) -> np.ndarray:
     ball_pos = np.asarray(obs["ball.position"], dtype=np.float64)
     ball_vel = np.asarray(obs["ball.velocity"], dtype=np.float64)
     p_int, t_int, valid = predict_intercept(ball_pos, ball_vel)
@@ -34,7 +34,8 @@ def serve_features(obs: dict, target: tuple) -> np.ndarray:
                            np.asarray(target, dtype=np.float64)]).astype(np.float32)
 
 
-def unsquash_to_params(u: np.ndarray, names, kinds, bounds) -> dict:
+def unsquash_to_params(u: np.ndarray, names: list[str], kinds: list[str],
+                       bounds: np.ndarray) -> dict[str, float]:
     out = {}
     for value, name, kind, bound in zip(np.asarray(u, dtype=np.float64).reshape(-1), names, kinds, bounds):
         out[str(name)] = float(value * bound) if kind == "add" else float(np.exp(value * np.log(bound)))
@@ -61,8 +62,8 @@ class NumpyParamResidualPolicy(Policy):
         self.hitter = IKHitterPolicy()
         self._target = self._target_from_params(None)
         self._pending = True
-        self._prev_time_s = None
-        self.last_params: dict | None = None
+        self._prev_time_s: float | None = None
+        self.last_params: dict[str, float] | None = None
 
     @staticmethod
     def _target_from_params(params: dict | None) -> tuple[float, float]:

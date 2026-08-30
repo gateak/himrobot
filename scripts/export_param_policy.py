@@ -1,7 +1,8 @@
 """Export a tt_sim/rl/param_train.py checkpoint to the torch-free .npz that
 tt_sim.policies.param_residual_np.NumpyParamResidualPolicy loads.
 
-    ./.venv/bin/python scripts/export_param_policy.py work/tt/rl/param/s3/best.pt assets/policies/param_residual_s3.npz
+    PYTHONPATH=. ./.venv/bin/python scripts/export_param_policy.py work/tt/rl/param/s3/best.pt \\
+        assets/policies/param_residual_s3.npz
 """
 import sys
 

@@ -1,8 +1,9 @@
 """Per-serve *parameter* residual over tt_sim.policies.ik_hitter.IKHitterPolicy.
 
 One decision per episode instead of one per control step: at ball launch a
-small MLP reads 13 serve features and emits K=10 bounded scalars that retune
-the IK hitter for that whole serve (see PARAM_SPECS). Why not per-step PPO:
+small MLP reads 13 serve features and emits K bounded scalars that retune
+the IK hitter for that whole serve (K = 10 in the default v1 space, 20 in v2;
+see PARAM_SPECS / PARAM_SPECS_V2). Why not per-step PPO:
 per-step Gaussian noise perturbs all 150 control steps of a swing the hitter
 already gets right ~47% of the time, so exploration itself collapses it to
 ~10% legal and most of the training budget is spent off-distribution. A
@@ -11,11 +12,11 @@ budget measures real returns -- and one decision per episode makes it a plain
 contextual bandit, which needs no GAE, no bootstrapping and no credit
 assignment across time.
 
-Pieces here: PARAM_SPECS (the bounded action space, u = tanh(z)),
-serve_features (the 13-dim context), ParamActorCritic (zero-init head, so an
-untrained net emits exactly the nominal = plain-hitter parameters), and
-VecTTParam (tt_sim.rl.env.VecTT stepped by a per-slot hitter, one parameter
-draw per episode). Training lives in tt_sim/rl/param_train.py.
+Pieces here: PARAM_SPECS/PARAM_SPECS_V2 (the bounded action spaces,
+u = tanh(z)), serve_features (the 13-dim context), ParamActorCritic (zero-init
+head, so an untrained net emits exactly the nominal = plain-hitter
+parameters), and VecTTParam (tt_sim.rl.env.VecTT stepped by a per-slot
+hitter, one parameter draw per episode). Training lives in tt_sim/rl/param_train.py.
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ from tt_sim.policies.ik_hitter import (
     IKHitterPolicy,
 )
 from tt_sim.rl.demos import target_to_action
-from tt_sim.rl.env import MAX_EPISODE_STEPS, VecTT, flatten_obs, map_action
+from tt_sim.rl.env import MAX_EPISODE_STEPS, VecTT, map_action
 from tt_sim.rl.intercept import predict_intercept
 from tt_sim.rl.ppo import RunningMeanStd
 
@@ -132,9 +133,11 @@ FEATURE_DIM = 13
 HIDDEN = 64
 
 
-def unsquash_to_params(u: np.ndarray, specs=PARAM_SPECS) -> dict:
+def unsquash_to_params(u: np.ndarray,
+                       specs: tuple[tuple[str, str, float], ...] = PARAM_SPECS) -> dict[str, float]:
     """u in [-1, 1]^K -> the serve-param dict IKHitterPolicy.set_serve_params
-    takes. u = 0 gives exactly SERVE_PARAM_NOMINAL, i.e. the plain hitter.
+    takes. u = 0 gives exactly the nominal values (SERVE_PARAM_NOMINAL, or
+    SERVE_PARAM_NOMINAL_V2 under the v2 specs), i.e. the plain hitter.
     ``specs`` is overridable so a checkpoint is decoded with the ranges it was
     trained under, not whatever this module currently declares."""
     u = np.asarray(u, dtype=np.float64).reshape(-1)
@@ -145,7 +148,7 @@ def unsquash_to_params(u: np.ndarray, specs=PARAM_SPECS) -> dict:
     return out
 
 
-def serve_features(obs: dict, target: tuple) -> np.ndarray:
+def serve_features(obs: dict, target: tuple[float, float]) -> np.ndarray:
     """The FEATURE_DIM-dim context the parameter net conditions on, built
     from the same obs dict tt_sim.evaluate and TableTennisEnv hand a Policy
     (so training and eval read identical features)."""
@@ -186,11 +189,12 @@ class ParamActorCritic(nn.Module):
             nn.Linear(hidden, 1),
         )
 
-    def forward(self, feats: torch.Tensor):
+    def forward(self, feats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return self.actor(feats), self.critic(feats).squeeze(-1)
 
     @torch.no_grad()
-    def act(self, feats: torch.Tensor, deterministic: bool = False):
+    def act(self, feats: torch.Tensor,
+            deterministic: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Returns (z, logp, value). z is the PRE-squash Gaussian sample --
         the trainer's action variable, so its log-prob needs no tanh Jacobian
         correction; u = tanh(z) is only applied when building the params."""
@@ -201,7 +205,8 @@ class ParamActorCritic(nn.Module):
         z = dist.sample()
         return z, dist.log_prob(z).sum(-1), value
 
-    def evaluate_actions(self, feats: torch.Tensor, z: torch.Tensor):
+    def evaluate_actions(self, feats: torch.Tensor,
+                         z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mean, value = self.forward(feats)
         dist = Normal(mean, self.log_std.exp())
         return dist.log_prob(z).sum(-1), dist.entropy().sum(-1), value
@@ -261,7 +266,7 @@ class VecTTParam(VecTT):
         self._decisions[i] = decision
         return flat
 
-    def step(self):
+    def step(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict]]:
         obs_batch = np.zeros((self.n_envs, self.obs_dim), dtype=np.float32)
         reward_batch = np.zeros(self.n_envs, dtype=np.float64)
         done_batch = np.zeros(self.n_envs, dtype=bool)
@@ -304,7 +309,8 @@ class VecTTParam(VecTT):
         return obs_batch, reward_batch, done_batch, infos
 
 
-def hitter_from_u(u: np.ndarray, specs=PARAM_SPECS, **hitter_kwargs) -> IKHitterPolicy:
+def hitter_from_u(u: np.ndarray, specs: tuple[tuple[str, str, float], ...] = PARAM_SPECS,
+                  **hitter_kwargs) -> IKHitterPolicy:
     """An IKHitterPolicy retuned by a squashed parameter vector -- the same
     mapping VecTTParam and ParamResidualPolicy use."""
     hitter = IKHitterPolicy(**hitter_kwargs)
@@ -341,7 +347,8 @@ def save_checkpoint(path: str, model: ParamActorCritic, feat_rms: RunningMeanStd
     torch.save(ckpt, path)
 
 
-def load_checkpoint(path: str, device: torch.device):
+def load_checkpoint(path: str, device: torch.device) -> tuple[
+        ParamActorCritic, RunningMeanStd, tuple[tuple[str, str, float], ...]]:
     """(model, feat_rms, specs) from a save_checkpoint() file."""
     # weights_only=False: our own checkpoints carry numpy arrays and plain
     # Python metadata; only ever load checkpoints this package produced.

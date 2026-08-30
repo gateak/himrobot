@@ -182,7 +182,7 @@ def test_reach_boxes_follow_a_non_zero_stance():
 
 
 # -- 4/5/6. the collision guard -------------------------------------------
-def _in_region_targets(n=200, seed=0):
+def _in_region_targets(n: int = 200, seed: int = 0) -> np.ndarray:
     """Random blade targets strictly inside GUARD_REGION."""
     dx, z_min, dy = GUARD_REGION
     rng = np.random.default_rng(seed)
@@ -385,10 +385,10 @@ def test_the_guard_box_and_region_are_pelvis_relative():
 
     hitter = IKHitterPolicy()
     rng = hitter._ik_jnt_range
-    sh_roll, waist_yaw, waist_roll = GUARD_BOX
-    assert rng[IK_JOINT_NAMES.index("right_shoulder_roll_joint"), 0] < sh_roll < rng[IK_JOINT_NAMES.index("right_shoulder_roll_joint"), 1]
-    assert rng[IK_JOINT_NAMES.index("waist_yaw_joint"), 0] < waist_yaw < rng[IK_JOINT_NAMES.index("waist_yaw_joint"), 1]
-    assert rng[IK_JOINT_NAMES.index("waist_roll_joint"), 0] < waist_roll < rng[IK_JOINT_NAMES.index("waist_roll_joint"), 1]
+    names = ("right_shoulder_roll_joint", "waist_yaw_joint", "waist_roll_joint")
+    for name, bound in zip(names, GUARD_BOX, strict=True):  # strict: GUARD_BOX arity is pinned
+        lo, hi = rng[IK_JOINT_NAMES.index(name)]
+        assert lo < bound < hi, name
 
 
 # -- the depth-shortfall reward knob (design 2.3) -------------------------

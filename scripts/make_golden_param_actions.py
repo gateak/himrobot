@@ -27,7 +27,7 @@ FIXTURE = os.path.join(REPO, "tt_sim", "tests", "data", "param_s3_actions.npz")
 STEPS = 60
 
 
-def rollout(seeds) -> dict:
+def rollout(seeds) -> dict[str, np.ndarray]:
     policy = NumpyParamResidualPolicy(S3_WEIGHTS)
     env = scene.TableTennisEnv(seed=0, params={})
     actions, params = [], []
@@ -43,7 +43,7 @@ def rollout(seeds) -> dict:
             "params": np.stack(params), "names": np.array(policy.names)}
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seeds", type=int, nargs="+", default=None,
                     help="serve seeds (default: the committed fixture's, else 0 3 7)")

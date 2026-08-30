@@ -76,10 +76,6 @@ TARGET_HIT_RADIUS_M = 0.30
 
 POLICY_SHORTCUTS = {
     "hold": ("tt_sim.policies.hold", "HoldPolicy"),
-    # ik_hitter is not implemented by this task (tt_sim/evaluate.py); the
-    # shortcut is wired up so `--policy ik_hitter` resolves once
-    # tt_sim/policies/ik_hitter.py exists, per the shared package
-    # interface's `--policy {hold,ik_hitter,module:path}`.
     "ik_hitter": ("tt_sim.policies.ik_hitter", "IKHitterPolicy"),
 }
 
@@ -139,10 +135,6 @@ def _json_safe(value):
     return value
 
 
-def _obs_to_json(obs: dict) -> dict:
-    return {k: _json_safe(v) for k, v in obs.items()}
-
-
 def _running_legal_rate_text(legal_flags: list[bool]) -> str:
     n = len(legal_flags)
     if n == 0:
@@ -157,7 +149,7 @@ def run_trial(
     trial_idx: int,
     n_trials: int,
     trial_seed: int,
-    target,
+    target: tuple[float, float],
     traj_fh,
     recorder=None,
     legal_flags: list[bool] | None = None,
@@ -174,6 +166,9 @@ def run_trial(
     policy_obs = perturber.reset(obs)
 
     info: dict = {}
+    # The HUD's running rate is fixed for this trial: the caller appends this
+    # trial's own flag to legal_flags only after run_trial returns.
+    metric_text = _running_legal_rate_text(legal_flags or []) if recorder is not None else ""
     for step_i in range(EPISODE_CONTROL_STEPS):
         action = policy.act(policy_obs)
         obs, info = env.step(action)
@@ -183,13 +178,12 @@ def run_trial(
             "trial": trial_idx,
             "step": step_i,
             "time_s": obs["time_s"],
-            "obs": _obs_to_json(obs),
+            "obs": _json_safe(obs),
             "action": _json_safe(np.asarray(action, dtype=np.float64)),
             "events": _json_safe(info),
         }) + "\n")
 
         if recorder is not None:
-            metric_text = _running_legal_rate_text(legal_flags or [])
             recorder.maybe_capture(env.data, obs["time_s"], trial_idx, n_trials, info, metric_text)
 
     legal = legal_return(info)
@@ -286,7 +280,6 @@ def main(argv: list[str] | None = None) -> dict:
                     recorder = TrialRecorder(env.model)
                 except Exception as exc:  # no GL on this host: keep scoring, skip video
                     print(f"[evaluate] video disabled: {exc!r}", file=sys.stderr)
-                    recorder = None
 
             perturber = ObsPerturber(args.obs_noise, args.joint_noise, args.obs_delay_steps,
                                      seed=args.seed + k)

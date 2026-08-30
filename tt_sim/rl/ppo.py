@@ -13,11 +13,13 @@ action clipping to [-1, 1] at the env boundary (the actor's own tanh
 output is already bounded; the post-sample clip only guards the Normal
 noise added around it). Runs on MPS if available, else CPU.
 
-Writes ``train_log.csv`` (step, wall_s, mean_return, legal_return_rate,
-contact_rate, ep_len -- each a mean over the last 200 completed episodes)
-to --out, checkpoints every 10 minutes of wall time
-(``checkpoint_<step>.pt``) and whenever the last-200-episode
-legal_return_rate hits a new best (``best.pt``), and a ``final.pt`` at exit
+Writes ``train_log.csv`` to --out (step, wall_s, then mean_return,
+legal_return_rate, contact_rate, ep_len over the last 200 completed
+episodes, then det_legal_rate/det_contact_rate -- NaN unless
+--det-eval-episodes is set), checkpoints every 10 minutes of wall time
+(``checkpoint_<step>.pt``) and whenever the selection rate hits a new best
+(``best.pt``; the deterministic rate when --det-eval-episodes is set, else
+the last-200-episode legal_return_rate), and a ``final.pt`` at exit
 (hard-capped by --minutes if given, else runs to --total-steps). A
 checkpoint is loadable by tt_sim.evaluate via
 ``--policy tt_sim.rl.policy:PPOPolicy`` with ``TT_RL_CKPT=<path>`` (see
@@ -82,13 +84,14 @@ class ActorCritic(nn.Module):
             nn.Linear(hidden, 1),
         )
 
-    def forward(self, obs: torch.Tensor):
+    def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         mean = self.actor(obs)
         value = self.critic(obs).squeeze(-1)
         return mean, value
 
     @torch.no_grad()
-    def act(self, obs: torch.Tensor, deterministic: bool = False):
+    def act(self, obs: torch.Tensor,
+            deterministic: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mean, value = self.forward(obs)
         std = self.log_std.exp()
         if deterministic:
@@ -98,7 +101,8 @@ class ActorCritic(nn.Module):
         logp = dist.log_prob(action).sum(-1)
         return action, logp, value
 
-    def evaluate_actions(self, obs: torch.Tensor, action: torch.Tensor):
+    def evaluate_actions(self, obs: torch.Tensor,
+                         action: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mean, value = self.forward(obs)
         std = self.log_std.exp()
         dist = Normal(mean, std)
@@ -111,7 +115,7 @@ class RunningMeanStd:
     """Welford/Chan-style running mean+var, used to normalize obs online
     (updated with every raw obs seen during rollout collection)."""
 
-    def __init__(self, shape, eps: float = 1e-4):
+    def __init__(self, shape: tuple[int, ...], eps: float = 1e-4):
         self.mean = np.zeros(shape, dtype=np.float64)
         self.var = np.ones(shape, dtype=np.float64)
         self.count = eps
@@ -135,7 +139,8 @@ class RunningMeanStd:
 
 
 def compute_gae(rewards: np.ndarray, values: np.ndarray, dones: np.ndarray,
-                 last_values: np.ndarray, gamma: float = GAMMA, lam: float = GAE_LAMBDA):
+                 last_values: np.ndarray, gamma: float = GAMMA,
+                 lam: float = GAE_LAMBDA) -> tuple[np.ndarray, np.ndarray]:
     """rewards/values/dones: (T, N). last_values: (N,) bootstrap value for
     the step after the rollout. dones[t] gates the bootstrap at episode
     boundaries -- correct even under VecTT's auto-reset, since a done step's
@@ -182,9 +187,7 @@ def collect_rollout(vec: VecTT, model: ActorCritic, obs_rms: RunningMeanStd,
         rew_buf[t] = reward
         val_buf[t] = value_t.cpu().numpy()
         done_buf[t] = done.astype(np.float32)
-        for info in infos:
-            if "episode" in info:
-                episode_stats.append(info["episode"])
+        episode_stats.extend(info["episode"] for info in infos if "episode" in info)
 
         obs = next_obs
 
@@ -197,7 +200,7 @@ def collect_rollout(vec: VecTT, model: ActorCritic, obs_rms: RunningMeanStd,
     return obs_buf, act_buf, logp_buf, rew_buf, val_buf, done_buf, last_value, episode_stats
 
 
-def deterministic_eval(vec_eval, model: ActorCritic, obs_rms: RunningMeanStd, device: torch.device,
+def deterministic_eval(vec_eval: VecTT, model: ActorCritic, obs_rms: RunningMeanStd, device: torch.device,
                        max_steps: int = 600) -> tuple[float, float]:
     """Mean-action legal/contact rate (%) over one episode per env of a fixed-serve env.
     This is the number the evaluator scores; the noisy train-time rate is not (v4 box: it rose
@@ -225,8 +228,8 @@ def deterministic_eval(vec_eval, model: ActorCritic, obs_rms: RunningMeanStd, de
 def ppo_update(model: ActorCritic, optimizer: torch.optim.Optimizer,
                 obs_buf: np.ndarray, act_buf: np.ndarray, logp_buf: np.ndarray,
                 adv_buf: np.ndarray, ret_buf: np.ndarray, obs_rms: RunningMeanStd,
-                device: torch.device) -> dict:
-    T, N, obs_dim = obs_buf.shape
+                device: torch.device) -> dict[str, float]:
+    obs_dim = obs_buf.shape[-1]
     b_obs = obs_rms.normalize(obs_buf.reshape(-1, obs_dim))
     b_act = act_buf.reshape(-1, act_buf.shape[-1])
     b_logp = logp_buf.reshape(-1)
@@ -402,7 +405,7 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
                              vel_penalty=vel_penalty, legal_bonus=legal_bonus, obs_delay_steps=obs_delay_steps)
     csv_fh.flush()
 
-    episode_window: deque = deque(maxlen=EPISODE_WINDOW)
+    episode_window: deque[dict] = deque(maxlen=EPISODE_WINDOW)
     start = time.time()
     total = 0
     n_updates = 0
@@ -472,7 +475,7 @@ def train(n_envs: int, total_steps: int, seed: int, out: str, init_from: str | N
             "best_legal_rate": best_legal_rate}
 
 
-def main(argv=None) -> dict:
+def main(argv: list[str] | None = None) -> dict:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n-envs", type=int, default=64)
     parser.add_argument("--total-steps", type=int, default=1_000_000)

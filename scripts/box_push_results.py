@@ -4,10 +4,10 @@ Usage (on the box, from the repo root, with the him CLI logged in):
     /workspace/venv/bin/python scripts/box_push_results.py --root work/tt/rl/param_v2 --machine ssh_xxx \\
         --description "hitter-v2 robustness sweep"
 
-Collects <root>/<run>/{train_log.csv,best.pt,final.pt,RESULT.md}, <root>/*.md|*.json|*.log and <root>/logs/*.log,
-writes <out>/manifest.json + summary.json (last train_log row per run) and runs `him dataset push --yes --json`
-against the dataset slug (default himrobot-rl-checkpoints). Safe to re-run on a timer: every push is a new
-version (0.1.<minutes since epoch>).
+Collects <root>/<run>/{train_log.csv,best.pt,final.pt,RESULT.md}, <root>/*.md|*.json|*.log, <root>/logs/*.log
+and <root>/scoreboard*/scoreboard.*, writes <out>/manifest.json + summary.json (last train_log row per run)
+and runs `him dataset push --yes --json` against the dataset slug (default himrobot-rl-checkpoints). Safe
+to re-run on a timer: every push is a new version (0.1.<minutes since epoch>).
 """
 import argparse
 import glob
@@ -21,7 +21,7 @@ import time
 RUN_FILES = ("train_log.csv", "best.pt", "final.pt", "RESULT.md")
 
 
-def sha256(path):
+def sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -29,12 +29,12 @@ def sha256(path):
     return h.hexdigest()
 
 
-def media_type(path):
+def media_type(path: str) -> str:
     return {".csv": "text/csv", ".json": "application/json", ".log": "text/plain",
             ".md": "text/markdown"}.get(os.path.splitext(path)[1], "application/octet-stream")
 
 
-def collect(root):
+def collect(root: str) -> tuple[list[str], list[str]]:
     files = []
     runs = sorted(d for d in glob.glob(os.path.join(root, "*")) if os.path.isdir(d)
                   and os.path.isfile(os.path.join(d, "train_log.csv")))
@@ -49,7 +49,7 @@ def collect(root):
     return runs, sorted(set(files))
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", required=True, help="directory holding one sub-directory per training run")
     ap.add_argument("--machine", required=True, help="HIM machine id, recorded in the manifest")
@@ -80,7 +80,7 @@ def main():
     version = "0.1." + str(int(time.time()) // 60)
     root_abs = os.path.abspath(args.root)
 
-    def uri(p):
+    def uri(p: str) -> str:
         p = os.path.abspath(p)
         rel = os.path.relpath(p, root_abs) if p.startswith(root_abs + os.sep) else os.path.basename(p)
         return "box://himrobot-rl/" + rel.replace(os.sep, "/")
