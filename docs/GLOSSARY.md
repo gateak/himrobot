@@ -141,3 +141,19 @@ Plain definitions, each tied to what it means *here*. Read top to bottom once; t
   that has nothing holding it up, roughly doubling the falls (19 % → 37 %) and dropping legal returns 54.0 % →
   39.3 %. The lesson is order of operations: base-aware IK is the right kinematics and pays only once a **balance
   controller** (the Isaac whole-body lane) absorbs the arm's reaction.
+
+## Hitter v3 — stance (added 2026-08-30)
+
+- **Stance (`scene.ROBOT_Y`, `TT_ROBOT_Y`)** — where the robot stands sideways. The hips are bolted at a fixed spot;
+  sliding that spot 10 cm toward the serves' side turns the far-forehand balls the arm was straining for into the
+  middle of its comfortable range. It is a property of the scene, not something the policy chooses per serve, so it
+  is one constant read from the environment at start-up (`TT_ROBOT_Y=-0.10`); the default 0.0 is the old scene,
+  byte-for-byte. The hitter's sideways reach limits slide with it — the arm did not change, the robot did.
+- **Depth bonus (`--depth-bonus`)** — a training reward that charges the policy for landing **short** of the target
+  and nothing for landing long. Every legal return currently lands about 28 cm short, and the aim knobs cannot fix
+  it because the swing-speed cap is what actually binds; this term's pressure points at swing speed instead.
+  Default 0 = the old reward exactly.
+- **Collision guard (`collision_guard`)** — a keep-out switch for the arm. Deep and close to the body there is one
+  posture the solver likes that drives the upper arm through the chest; the guard tightens three joint limits for
+  that one solve, inside that one region, so the solver cannot find it. Worth 0 points on today's forehand-only
+  serves and costs some placement, so it ships **off**: it is insurance for a wider serve set, not a gain.

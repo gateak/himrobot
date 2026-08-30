@@ -31,6 +31,7 @@ from tt_sim.policies.ik_hitter import (
     reach_box,
 )
 from tt_sim.scene import DEFAULT_PARAMS, TableTennisEnv, sample_serve
+from tt_sim.tests.hitter_helpers import benign_contact, ik_pose_at, roll_actions
 
 from tt_sim.rl.demos import target_to_action
 from tt_sim.rl.env import map_action
@@ -46,39 +47,25 @@ needs_torch = pytest.mark.skipif(torch is None, reason="needs torch (tt_sim.rl.p
 GOLDEN = os.path.join(os.path.dirname(__file__), "data", "param_s3_actions.npz")
 
 
-def _roll(policy, seed=0, steps=150):
-    """One serve through a policy; returns the stacked per-step actions."""
-    env = TableTennisEnv(seed=seed, params={})
-    serve = sample_serve(np.random.default_rng(seed), DEFAULT_PARAMS)
-    obs = env.reset(serve=serve)
-    policy.reset({"serve": serve, "params": DEFAULT_PARAMS})
-    actions = []
-    for _ in range(steps):
-        action = policy.act(obs)
-        actions.append(np.asarray(action, dtype=np.float64).copy())
-        obs, _events = env.step(action)
-    return np.stack(actions)
-
-
 # -- parity ---------------------------------------------------------------
 def test_v2_nominal_matches_plain_hitter():
     """Every v2 addition is the identity at nominal, so all three routes to a
     "nominal v2 hitter" reproduce the plain hitter bit for bit."""
-    plain = _roll(IKHitterPolicy(), seed=0)
+    plain = roll_actions(IKHitterPolicy(), seed=0)
 
     tuned = IKHitterPolicy()
     tuned.set_serve_params(SERVE_PARAM_NOMINAL_V2)
-    assert np.array_equal(plain, _roll(tuned, seed=0))
+    assert np.array_equal(plain, roll_actions(tuned, seed=0))
 
     ctor = IKHitterPolicy(serve_params=dict(SERVE_PARAM_NOMINAL_V2))
-    assert np.array_equal(plain, _roll(ctor, seed=0))
+    assert np.array_equal(plain, roll_actions(ctor, seed=0))
 
 
 @needs_torch
 def test_v2_zero_vector_matches_plain_hitter():
     """The fourth route: the action space's u = 0 decodes to the plain hitter."""
     from_u = pr.hitter_from_u(np.zeros(pr.K_PARAMS_V2), pr.PARAM_SPECS_V2)
-    assert np.array_equal(_roll(IKHitterPolicy(), seed=0), _roll(from_u, seed=0))
+    assert np.array_equal(roll_actions(IKHitterPolicy(), seed=0), roll_actions(from_u, seed=0))
 
 
 def test_v1_nominal_still_matches_under_the_v2_superset():
@@ -87,7 +74,7 @@ def test_v1_nominal_still_matches_under_the_v2_superset():
     hitter.set_serve_params(gate_lift=0.8)
     hitter.set_serve_params(SERVE_PARAM_NOMINAL)  # v1 dict: resets the v2 keys too
     assert hitter.gate_lift == 0.0
-    assert np.array_equal(_roll(IKHitterPolicy(), seed=1), _roll(hitter, seed=1))
+    assert np.array_equal(roll_actions(IKHitterPolicy(), seed=1), roll_actions(hitter, seed=1))
 
 
 @needs_torch
@@ -186,7 +173,7 @@ def test_each_template_runs_a_full_episode_cleanly(name):
     joint inside its range, and a real swing (the hitter left the stand pose)."""
     hitter = IKHitterPolicy()
     hitter._drive_shape = dict(SWING_TEMPLATES[name])
-    actions = _roll(hitter, seed=0, steps=200)
+    actions = roll_actions(hitter, seed=0, steps=200)
     assert np.all(np.isfinite(actions))
     lo, hi = hitter._ik_jnt_range[:, 0], hitter._ik_jnt_range[:, 1]
     ik = actions[:, IK_INDICES]
@@ -200,7 +187,7 @@ def test_each_gate_drives_a_full_episode_cleanly(name):
     """The same, through the action space the policy actually has."""
     u = np.zeros(pr.K_PARAMS_V2)
     u[pr.PARAM_NAMES_V2.index(f"gate_{name}")] = 1.0
-    actions = _roll(pr.hitter_from_u(u, pr.PARAM_SPECS_V2), seed=0, steps=200)
+    actions = roll_actions(pr.hitter_from_u(u, pr.PARAM_SPECS_V2), seed=0, steps=200)
     assert np.all(np.isfinite(actions))
 
 
@@ -217,39 +204,6 @@ def test_reach_box_is_the_v1_clamp_at_zero_and_the_envelope_at_one():
         assert ylo <= yhi and zlo <= zhi
 
 
-# A pre-existing model artifact, not a reachability limit: these two wrist
-# links sit two joints apart (roll -> pitch -> yaw), so MuJoCo does not filter
-# their contact, and they touch over y in [-0.25, 0.15], z in [0.90, 1.25] at
-# x=-1.20 with the v1 hitter at nominal.
-WRIST_ARTIFACT_PAIR = frozenset(("right_wrist_roll_link", "right_wrist_yaw_link"))
-# The passive left arm (held at STAND_POSE) brushes the left hip when the waist
-# bends toward a far reach: benign, pre-existing, and not what R4 is about.
-def _benign_contact(pair) -> bool:
-    a, b = pair
-    if frozenset(pair) == WRIST_ARTIFACT_PAIR:
-        return True
-    idle_hand = {a, b} & {"left_wrist_roll_link", "left_wrist_pitch_link", "left_wrist_yaw_link"}
-    return bool(idle_hand) and "left_hip_pitch_link" in (a, b)
-
-
-def _ik_pose_at(hitter, data, x, y, z, normal=(1.0, 0.0, 0.2)):
-    """Warm-started from stand exactly as the runtime solver is, then forward
-    kinematics. Returns (q29, [(body_a, body_b), ...] for every contact)."""
-    normal = np.asarray(normal, dtype=np.float64)
-    normal /= np.linalg.norm(normal)
-    q = scene.STAND_POSE.copy()
-    for _ in range(8):
-        q[IK_INDICES] = hitter._solve_ik(q, np.array([x, y, z]), normal)
-    data.qpos[hitter._all_qpos_adr] = q
-    mujoco.mj_forward(hitter._ik_model, data)
-    model = hitter._ik_model
-    pairs = []
-    for c in data.contact[:data.ncon]:
-        body = lambda g: mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, model.geom_bodyid[g])  # noqa: E731
-        pairs.append((body(c.geom1), body(c.geom2)))
-    return q, pairs
-
-
 def test_the_newly_opened_reach_is_collision_free():
     """The regions reach_expand_* newly opens must not put the local,
     warm-started solver on a self-colliding IK branch.
@@ -258,18 +212,21 @@ def test_the_newly_opened_reach_is_collision_free():
     clamp box either: sampling the *existing* box at x=-1.20 on a 0.05 grid
     finds 99 colliding points of 285 -- 46 the paddle/wrist through the table
     (blade centre below TABLE_TOP_Z=0.76 inside the table footprint) and 53
-    the pre-existing WRIST_ARTIFACT_PAIR self-contact at blade z 0.90-1.25,
+    the pre-existing right-wrist roll/yaw self-contact at blade z 0.90-1.25,
     y in [-0.25, 0.15]. Both predate v2, so the newly-opened low-z sliver is
     excluded on those grounds and the wrist pair is filtered out explicitly,
     as is the idle left hand brushing the left hip when the waist bends
-    (_benign_contact) -- the right arm, torso and table must stay clear.
+    (hitter_helpers.benign_contact, widened on 2026-08-30 to excuse the whole
+    idle-left-arm-against-the-hips family, which lowered the pinned deep-plane
+    counts from 27/57/90/277 to the 22/45/66/184 below) -- the right arm, torso
+    and table must stay clear.
     The guard then covers the two regions v2 opens -- the lateral band
     y in [-0.90, -0.75) and the high-z band (1.35, 1.45] -- at the two
     shallowest hitting planes (drive -1.20, punch -1.14) and at the face
     normals the templates and pitch/yaw offsets can command there, and PINS
     the deeper planes (block -1.28, lift -1.31, crossbody -1.25, x_hit_coarse
     -1.50) at their measured collision counts: there the warm-started solver
-    puts the right arm through the torso on 27-277 of 1450 sampled poses --
+    puts the right arm through the torso on 22-184 of 1450 sampled poses --
     an accepted limitation of the reach expansion that the policy has to
     learn around; this test fails only if it gets worse."""
     hitter = IKHitterPolicy()
@@ -288,16 +245,16 @@ def test_the_newly_opened_reach_is_collision_free():
     drive_x = SWING_TEMPLATES["drive"]["x_hit"]
     planes = {"drive": (drive_x, 0), "punch": (blend_shape([0, 0, 1, 0])["x_hit"], 0),
               "coarse_shallow": (drive_x + 0.30, 0),
-              "crossbody": (blend_shape([0, 0, 0, 1])["x_hit"], 27), "block": (blend_shape([1, 0, 0, 0])["x_hit"], 57),
-              "lift": (blend_shape([0, 1, 0, 0])["x_hit"], 90), "coarse_deep": (drive_x - 0.30, 277)}
+              "crossbody": (blend_shape([0, 0, 0, 1])["x_hit"], 22), "block": (blend_shape([1, 0, 0, 0])["x_hit"], 45),
+              "lift": (blend_shape([0, 1, 0, 0])["x_hit"], 66), "coarse_deep": (drive_x - 0.30, 184)}
     lo, hi = hitter._ik_jnt_range[:, 0] - 1e-9, hitter._ik_jnt_range[:, 1] + 1e-9
     for name, (x, allowed) in planes.items():
         colliding = []
         for normal in normals:
             for y, z in lateral + high_z:
-                q, pairs = _ik_pose_at(hitter, data, x, y, z, normal)
+                q, pairs = ik_pose_at(hitter, data, x, y, z, normal)
                 assert np.all(q[IK_INDICES] >= lo) and np.all(q[IK_INDICES] <= hi), (name, y, z)
-                real = [p for p in pairs if not _benign_contact(p)]
+                real = [p for p in pairs if not benign_contact(p)]
                 if real:
                     colliding.append((normal, round(float(y), 2), round(float(z), 2), sorted(set(real))[:2]))
         assert len(colliding) <= allowed, (name, x, len(colliding), allowed, colliding[:3])
@@ -312,7 +269,7 @@ def _per_joint_stand_excursion(specs, k_params, seeds=(0, 1), steps=90):
             u[i] = extreme
             hitter_u = pr.hitter_from_u(u, specs)
             for seed in seeds:
-                targets = _roll(hitter_u, seed=seed, steps=steps)
+                targets = roll_actions(hitter_u, seed=seed, steps=steps)
                 worst = np.maximum(worst, np.abs(targets - scene.STAND_POSE).max(axis=0))
     return worst
 
@@ -346,7 +303,7 @@ def test_v2_does_not_widen_the_train_eval_pipeline_gap():
     assert not over, over
 
     # ...and inside the +-3 rad band the pipeline round-trip is exact.
-    for target in _roll(hitter, seed=0, steps=90):
+    for target in roll_actions(hitter, seed=0, steps=90):
         if np.abs(target - scene.STAND_POSE).max() <= 3.0:
             assert np.allclose(map_action(target_to_action(target), jnt_range), target, atol=1e-9)
 
@@ -383,8 +340,8 @@ def test_every_v2_param_actually_changes_the_swing():
         u1 = u0.copy()
         u1[i] = 0.9
         changed = any(
-            not np.array_equal(_roll(pr.hitter_from_u(u0, pr.PARAM_SPECS_V2), s, 60),
-                               _roll(pr.hitter_from_u(u1, pr.PARAM_SPECS_V2), s, 60))
+            not np.array_equal(roll_actions(pr.hitter_from_u(u0, pr.PARAM_SPECS_V2), s, 60),
+                               roll_actions(pr.hitter_from_u(u1, pr.PARAM_SPECS_V2), s, 60))
             for s in seeds)
         assert changed, name
 
@@ -417,7 +374,7 @@ def test_a_v2_checkpoint_at_zero_is_still_the_plain_hitter(tmp_path):
     policy = ParamResidualPolicy(ckpt_path=path)
     assert policy.param_space == "v2"
     assert policy.model.k_params == pr.K_PARAMS_V2
-    assert np.array_equal(_roll(IKHitterPolicy(), seed=2), _roll(policy, seed=2))
+    assert np.array_equal(roll_actions(IKHitterPolicy(), seed=2), roll_actions(policy, seed=2))
     assert policy.last_params == pytest.approx(SERVE_PARAM_NOMINAL_V2)
 
 

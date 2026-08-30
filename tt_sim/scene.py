@@ -103,13 +103,23 @@ CONTACT_FRICTION = "0.4 0.005 0.0001"  # sliding/torsional/rolling — rubber-is
 # is needed to face the table).
 ROBOT_STANDBACK_M = 0.4
 ROBOT_X = -(TABLE_HALF_LENGTH + ROBOT_STANDBACK_M)  # -1.77
+# Lateral stance offset (m). The serves DEFAULT_PARAMS draws land forehand-only
+# (target_y in [-0.65, -0.10]) and the misses cluster at far-forehand arrival,
+# so sliding the welded pelvis toward -y turns the far forehand into the middle
+# of the arm's workspace: measured -0.10 m takes the shipped, unretrained policy
+# from 441/600 to 467/600 legal returns (work/tt/design/hitter_v3_reach.md 2.1).
+# Read once at import from TT_ROBOT_Y so a run opts in without editing source;
+# the default 0.0 renders as "0" in _build_xml's {ROBOT_Y:g}, which keeps the
+# scene XML byte-identical to the pre-stance tree. It is tuned to *this* serve
+# distribution -- re-sweep it before any serve-distribution change ships.
+ROBOT_Y = float(os.environ.get("TT_ROBOT_Y", "0.0"))
 ROBOT_Z = 0.793  # unchanged from the vendor pelvis pos / "stand" keyframe height
 
 # Nominal pelvis pose the welded scene bolts the robot to, and the pose the
 # free-base scene resets to. Kept as a (position, wxyz-quaternion) pair so
 # base-aware code (tt_sim.policies.ik_hitter) can name one origin instead of
-# rebuilding it from the two scalars above.
-BASE_NOMINAL_POS = np.array([ROBOT_X, 0.0, ROBOT_Z], dtype=np.float64)
+# rebuilding it from the three scalars above.
+BASE_NOMINAL_POS = np.array([ROBOT_X, ROBOT_Y, ROBOT_Z], dtype=np.float64)
 BASE_NOMINAL_QUAT = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
 
 # Free base only: pelvis height (m) below which the episode is latched as a
@@ -208,7 +218,7 @@ def _build_xml(fixed_base: bool, paddle: bool) -> str:
         text = text.replace('<freejoint name="floating_base_joint"/>', "", 1)
         text = text.replace(
             '<body name="pelvis" pos="0 0 0.793" childclass="g1">',
-            f'<body name="pelvis" pos="{ROBOT_X} 0 {ROBOT_Z}" childclass="g1">',
+            f'<body name="pelvis" pos="{ROBOT_X} {ROBOT_Y:g} {ROBOT_Z}" childclass="g1">',
             1,
         )
 

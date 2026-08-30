@@ -143,7 +143,7 @@ class VecTT:
                  vel_penalty: float = 0.0005, legal_bonus: float = 5.0,
                  obs_noise: float = 0.0, joint_noise: float = 0.0,
                  aim_bonus: float = 3.0, aim_sigma: float = 0.5,
-                 target_hit_bonus: float = 0.0):
+                 target_hit_bonus: float = 0.0, depth_bonus: float = 0.0):
         assert n_envs >= 1
         assert obs_delay_steps >= 0
         assert obs_noise >= 0.0 and joint_noise >= 0.0
@@ -178,6 +178,13 @@ class VecTT:
         self.aim_bonus = float(aim_bonus)
         self.aim_sigma = float(aim_sigma)
         self.target_hit_bonus = float(target_hit_bonus)
+        # Depth-shortfall penalty, default 0.0 = today's reward bit-for-bit.
+        # Measured: every legal return lands ~0.28 m short of the target, a bias
+        # 1.2-1.5x its own scatter that the aim knobs move by 3% of the requested
+        # amount because the swing-speed cap binds on 400/400 trials. This term's
+        # gradient points at swing_speed_scale, the one knob with measured
+        # authority over the bias (work/tt/design/hitter_v3_reach.md 2.3).
+        self.depth_bonus = float(depth_bonus)
         self.obs_dim = obs_dim(intercept_features=self.intercept_features)
         self.act_dim = ACT_DIM
 
@@ -390,6 +397,17 @@ class VecTT:
                 step_bonus = getattr(self, "target_hit_bonus", 0.0)
                 if step_bonus > 0.0 and err <= TARGET_HIT_RADIUS_M:
                     reward += step_bonus
+            # Depth shortfall, opt-in (see __init__). Only the shortfall is
+            # priced -- landing long is already the aim kernel's business, and
+            # the measured bias is one-sided. getattr with 0.0, like the knobs
+            # above: VecTT subclasses that skip super().__init__() inherit this
+            # method and must keep seeing the pre-v3 reward.
+            depth_w = getattr(self, "depth_bonus", 0.0)
+            landing = events.get("landing_point")
+            if depth_w > 0.0 and landing is not None:
+                dx = float(landing[0]) - float(self._targets[i][0])
+                if not np.isnan(dx):
+                    reward -= depth_w * max(0.0, -dx)
             self._legal_latched[i] = True
 
         da = action - self._prev_action[i]

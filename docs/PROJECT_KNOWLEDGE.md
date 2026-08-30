@@ -49,6 +49,36 @@ stay OFF on the free base until a balance controller (Isaac whole-body lane) abs
 re-measured there. Caveat: `fell` latches anywhere in the 3 s episode, including after a good return, so `falls` is
 an upper bound. Write-up `work/tt/rl/free_base/RESULT.md`; ~5 min local CPU, no credits.
 
+**Hitter v3 stance (2026-08-30) — where the robot stands is worth more than every hitter knob put together.**
+Nine uniform knob directions through the real evaluator buy nothing (best: a 5 % slower swing, +1.25 points of legal
+returns for −10.25 points of target hits); the hitter's own parameter space is exhausted. Sliding the **welded pelvis
+0.10 m toward −y** — one constant, `scene.ROBOT_Y`, read once at import from `TT_ROBOT_Y`, plus a stance-relative
+reach frame in `ik_hitter.py` (`STANCE_Y` / `_stance_y` slide `Y_REACH`, `REACH_MAX_Y` and the `lift`/`punch` y boxes;
+x, z and every face/direction bias are untouched) — moves the **shipped, unretrained** policy this far
+(`tt_sim.evaluate` mean action, 200 serves × seeds 11 / 2000 / 4000):
+
+| policy | stance | seed 11 | seed 2000 | seed 4000 | legal / 600 | legal % | target % | err |
+|---|---|---|---|---|---|---|---|---|
+| `param_residual_v2_wa0` | y = 0.00 (today) | 147 | 153 | 141 | 441 | 73.5 % | 28.5 % | 0.39 m |
+| `param_residual_v2_wa0` | **y = −0.10** | **161** | **154** | **152** | **467** | **77.8 %** | 30.5 % | 0.39 m |
+| plain `ik_hitter` | y = 0.00 | 93 | 94 | 85 | 272 | 45.3 % | 2.2 % | 0.75 m |
+| plain `ik_hitter` | y = −0.10 | 88 | 104 | 91 | 283 | 47.2 % | 2.2 % | 0.75 m |
+
++4.33 points, all three disjoint seeds up, McNemar exact two-sided p = 0.013 (64 trials gained, 38 lost); contacts
+80.0 % → 87.8 %. **No retrain has happened yet** — the 38 lost trials and the 55 % conversion on the new contacts
+(against 91 % on the ones the policy was trained for) are what a warm-started retrain at the new stance is for.
+Read it as tuned to *this* forehand-only serve distribution: on a symmetric one it would cost as much as it gains,
+and there is no left-arm backhand. Whether HIM's evaluator lets a policy choose its base pose is an open question
+below. Also landed, both defaulting to today's behaviour exactly: `VecTT(depth_bonus=)` / `param_train
+--depth-bonus`, a reward term that prices only the **landing-depth shortfall** (every legal return lands 0.276 m
+short, and the aim knobs move it by 3 % of the requested amount because the swing-speed cap binds on 400/400
+trials — this term's gradient points at `swing_speed_scale` instead); and `collision_guard`, a per-serve hitter knob
+(`SERVE_PARAM_NOMINAL_V3`, **not** in any `PARAM_SPACES` entry — `K_PARAMS_V2` stays 20) that removes the real
+latent defect of the solver driving the upper arm through the chest in the deep/inner band (86 of 950 poses at
+x = −1.31, 306 at x = −1.50 → 0 / 5 with the guard on), worth 0 legal returns at either stance today and −8 points
+of target hits when forced on, so it ships **off** as insurance for a widened serve set. Design
+`work/tt/design/hitter_v3_reach.md`, write-up `work/tt/rl/v3_stance/RESULT.md`.
+
 **HIM answers (2026-08-30, via Akbar).** Ethan: the `publishing_outputs` / `provider_reconciliation_timeout` job failure
 is a legacy flow being cleaned up; the core upload loop should be stable — retry a `him push` + run and report any new
 failure. Still open: the challenge version id, the evaluator's observation contract (ball state? base pose?), control

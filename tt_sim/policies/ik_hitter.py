@@ -94,6 +94,13 @@ only the flat ``obs`` dict -- see tt_sim.policies.base):
      re-expressed through the pelvis frame first. The welded scene never
      emits those keys, so the transform is not reached and every number
      above is unchanged; TT_BASE_AWARE=1 (or base_aware=True) enables it.
+  8. Stance-relative reach ("hitter v3", STANCE_Y / _stance_y): the lateral
+     reach constants were measured against a pelvis welded at y = 0, so they
+     slide with scene.ROBOT_Y (TT_ROBOT_Y). At the default stance _stance_y
+     returns its argument object untouched and every number above still holds
+     bit for bit. Plus one more per-serve knob, collision_guard
+     (SERVE_PARAM_NOMINAL_V3), default off: a keep-out box on three joint
+     limits inside the deep/inner region, see GUARD_BOX / GUARD_REGION.
 """
 from __future__ import annotations
 
@@ -265,7 +272,28 @@ N_IK = len(IK_JOINT_NAMES)
 # out of reach still gets pulled to the nearest plausible target rather
 # than rejected outright.
 X_HIT = -1.20
-Y_REACH = (-0.75, 0.15)
+
+# Lateral reach is measured relative to where the pelvis is welded: Y_REACH,
+# REACH_MAX_Y and every template's y box came from an FK sweep with the pelvis
+# at y = 0, so they only mean anything relative to where the robot stands. If
+# the stance moves (scene.ROBOT_Y / TT_ROBOT_Y), they move with it -- the arm
+# did not change, the robot did. x (X_HIT) and z (Z_REACH) are unaffected, and
+# the aim point stays world-frame: the table did not move.
+STANCE_Y = float(scene.ROBOT_Y)
+
+
+def _stance_y(pair):
+    """Slide a (lo, hi) y box to the current stance. At the nominal stance it
+    returns the argument object untouched -- no float arithmetic at all -- so
+    every template dict holds the identical float objects it holds today and
+    blend_shape / reach_box stay bit-exact, including their identity early-outs
+    (test_gates_at_zero_return_the_drive_template)."""
+    if STANCE_Y == 0.0:
+        return pair  # WHY: bit-exact -- no float arithmetic at all
+    return (pair[0] + STANCE_Y, pair[1] + STANCE_Y)
+
+
+Y_REACH = _stance_y((-0.75, 0.15))
 Z_REACH = (0.65, 1.35)
 
 
@@ -323,6 +351,11 @@ SHAPE_FIELDS = ("x_hit", "pred_delay", "speed_cap", "flight_time", "risk_gain",
 
 TEMPLATE_ORDER = ("drive", "block", "lift", "punch", "crossbody")
 
+# The two templates whose y box is not Y_REACH have their own literals; they
+# were measured against the same pelvis-at-y=0 sweep, so they follow the stance too.
+_LIFT_Y = _stance_y((-0.78, 0.15))
+_PUNCH_Y = _stance_y((-0.72, 0.15))
+
 SWING_TEMPLATES: dict[str, dict[str, float]] = {
     "drive": dict(
         x_hit=X_HIT, pred_delay=PREDICTION_DELAY_S, speed_cap=1.00, flight_time=0.50,
@@ -340,13 +373,13 @@ SWING_TEMPLATES: dict[str, dict[str, float]] = {
         x_hit=-1.34, pred_delay=0.036, speed_cap=0.80, flight_time=0.80,
         risk_gain=0.90, face_pitch=0.30, face_yaw=0.00, dir_pitch=0.55, dir_yaw=0.00,
         t_pre=0.35, speed_buffer=0.05, t_follow=0.30, backswing=0.14,
-        y_lo=-0.78, y_hi=0.15, z_lo=0.60, z_hi=1.30,
+        y_lo=_LIFT_Y[0], y_hi=_LIFT_Y[1], z_lo=0.60, z_hi=1.30,
     ),
     "punch": dict(
         x_hit=-1.14, pred_delay=0.028, speed_cap=2.20, flight_time=0.33,
         risk_gain=1.40, face_pitch=-0.05, face_yaw=0.00, dir_pitch=-0.10, dir_yaw=0.00,
         t_pre=0.22, speed_buffer=0.03, t_follow=0.15, backswing=0.18,
-        y_lo=-0.72, y_hi=0.15, z_lo=0.68, z_hi=1.42,
+        y_lo=_PUNCH_Y[0], y_hi=_PUNCH_Y[1], z_lo=0.68, z_hi=1.42,
     ),
     # "crossbody" ships WITHOUT the +y box that was its design rationale (this
     # solver self-collides there, see REACH_MAX_Y) and therefore without the
@@ -380,7 +413,7 @@ GATE_GAIN = 4.0
 # tried -- so the crossbody half of the workspace is deliberately NOT opened
 # here. z barely matters either way: the measured intercept z spans 0.91-1.35,
 # so the floor already has >25 cm of unused margin.
-REACH_MAX_Y = (-0.90, 0.15)
+REACH_MAX_Y = _stance_y((-0.90, 0.15))
 REACH_MAX_Z = (0.60, 1.45)
 
 
@@ -436,6 +469,32 @@ SERVE_PARAM_NOMINAL_V2 = {
 # end 8/16 = 0.5 is exact; the top clips at 16 from u = 0.25 on, on purpose --
 # w_normal = 128 makes the 6x10 DLS ill-conditioned and buys nothing.
 W_NORMAL_RANGE = (0.5, 16.0)
+
+# v3 superset of SERVE_PARAM_NOMINAL_V2: one more knob, again the identity at
+# nominal, so a hitter at SERVE_PARAM_NOMINAL_V3 is still the plain hitter.
+# Deliberately NOT in any PARAM_SPACES entry (K_PARAMS_V2 stays 20): the guard
+# is a switch, not a lerp, and its sign is known from the stance rather than
+# from the serve -- there is nothing per-serve for PPO to learn. It lives here
+# so a future space can expose it without another parity migration.
+SERVE_PARAM_NOMINAL_V3 = {
+    **SERVE_PARAM_NOMINAL_V2,
+    "collision_guard": 0.0,     # >0.5 = keep the arm off the crossbody branch in the deep/inner region
+}
+
+# The collision guard (work/tt/design/hitter_v3_reach.md 2.4). Measured: the
+# branch that drives the upper arm into the chest is one posture -- waist yaw
+# strongly negative, waist roll on its -0.520 stop, shoulder roll adducted
+# across the chest. Three per-iteration clip bounds remove it; no single bound
+# and no pair does (0 vs 9-113 of 1450), and a half-strength box is worse than
+# none (222 vs 216), so this is a SWITCH, not a lerp. It buys 0 legal returns
+# on today's forehand-only serve set at either stance and costs ~8 points of
+# target hits when forced on, so it ships OFF: its value is the latent defect
+# it removes (306 of 950 poses at x = -1.50) for a widened serve set or a +y
+# crossbody box.
+GUARD_BOX = (-0.20, -0.30, -0.15)          # right_shoulder_roll <=, waist_yaw >=, waist_roll >=
+# Region, pelvis-relative in x and y (it is arm geometry) and world in z (it is
+# the table): x <= ROBOT_X + 0.67, z >= 0.85, y >= ROBOT_Y - 0.45.
+GUARD_REGION = (0.67, 0.85, -0.45)
 
 
 class IKHitterPolicy(Policy):
@@ -493,8 +552,8 @@ class IKHitterPolicy(Policy):
         self.base_aware = bool(base_aware)
         self._base_nominal_pos = scene.BASE_NOMINAL_POS.copy()
         self._base_nominal_mat = _quat_to_mat(scene.BASE_NOMINAL_QUAT)
-        # Nominal until told otherwise: see SERVE_PARAM_NOMINAL_V2 / set_serve_params.
-        for _name, _nominal in SERVE_PARAM_NOMINAL_V2.items():
+        # Nominal until told otherwise: see SERVE_PARAM_NOMINAL_V3 / set_serve_params.
+        for _name, _nominal in SERVE_PARAM_NOMINAL_V3.items():
             setattr(self, _name, float(_nominal))
         # The blend's drive template *is* this instance's constructor kwargs, so
         # a hitter built with custom widths still blends around its own defaults.
@@ -552,11 +611,11 @@ class IKHitterPolicy(Policy):
         outlive an episode reset so a caller can order reset()/
         set_serve_params() either way round.
         """
-        merged = {**SERVE_PARAM_NOMINAL_V2, **(params or {}), **kwargs}
-        unknown = sorted(set(merged) - set(SERVE_PARAM_NOMINAL_V2))
+        merged = {**SERVE_PARAM_NOMINAL_V3, **(params or {}), **kwargs}
+        unknown = sorted(set(merged) - set(SERVE_PARAM_NOMINAL_V3))
         if unknown:
             raise ValueError(
-                f"unknown serve params {unknown}; known: {sorted(SERVE_PARAM_NOMINAL_V2)}")
+                f"unknown serve params {unknown}; known: {sorted(SERVE_PARAM_NOMINAL_V3)}")
         for name, value in merged.items():
             setattr(self, name, float(value))
         self._plan = None
@@ -762,6 +821,31 @@ class IKHitterPolicy(Policy):
     # -- IK ------------------------------------------------------------
     def _solve_ik(self, q29_current: np.ndarray, p_des: np.ndarray, n_des: np.ndarray,
                   w_normal: float | None = None) -> np.ndarray:
+        """Dispatcher. At collision_guard <= 0.5 (the nominal) this returns
+        before any arithmetic and before the region test, so the off path is
+        _solve_ik_stock itself -- the same code, not a re-derivation."""
+        if self.collision_guard <= 0.5:
+            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal)
+        dx, z_min, dy = GUARD_REGION
+        if not (p_des[0] <= scene.ROBOT_X + dx and p_des[2] >= z_min
+                and p_des[1] >= scene.ROBOT_Y + dy):
+            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal)
+        # Inside the region: tighten three joint limits for the duration of this
+        # one solve, so the per-iteration jnt_range clip already in the loop does
+        # the keep-out. Restored in `finally` -- the box is per-call, never state.
+        saved = self._ik_jnt_range
+        rng = saved.copy()
+        rng[IK_JOINT_NAMES.index("right_shoulder_roll_joint"), 1] = GUARD_BOX[0]
+        rng[IK_JOINT_NAMES.index("waist_yaw_joint"), 0] = GUARD_BOX[1]
+        rng[IK_JOINT_NAMES.index("waist_roll_joint"), 0] = GUARD_BOX[2]
+        self._ik_jnt_range = rng
+        try:
+            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal)
+        finally:
+            self._ik_jnt_range = saved
+
+    def _solve_ik_stock(self, q29_current: np.ndarray, p_des: np.ndarray, n_des: np.ndarray,
+                        w_normal: float | None = None) -> np.ndarray:
         w_normal = self.w_normal if w_normal is None else w_normal
         d = self._ik_data
         d.qpos[self._all_qpos_adr] = q29_current

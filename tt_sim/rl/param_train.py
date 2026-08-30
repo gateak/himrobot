@@ -210,6 +210,7 @@ def train(n_envs: int = 32, episodes: int = 20_000, seed: int = 0,
           legal_bonus: float = 5.0, resume_from: str | None = None,
           param_space: str = DEFAULT_PARAM_SPACE, aim_bonus: float = 3.0,
           aim_sigma: float = 0.5, target_hit_bonus: float = 0.0,
+          depth_bonus: float = 0.0,
           det_eval_episodes: int = 0, det_eval_every: int = 1000,
           det_eval_seed: int = 1001, log_std_init_new: float | None = None,
           obs_noise: float = 0.0, joint_noise: float = 0.0, obs_delay_steps: int = 0,
@@ -262,7 +263,8 @@ def train(n_envs: int = 32, episodes: int = 20_000, seed: int = 0,
     vec = VecTTParam(n_envs=n_envs, seed=seed, params=params or {}, decide_fn=decide,
                      vel_penalty=vel_penalty, legal_bonus=legal_bonus, param_specs=specs,
                      aim_bonus=aim_bonus, aim_sigma=aim_sigma,
-                     target_hit_bonus=target_hit_bonus, obs_noise=obs_noise,
+                     target_hit_bonus=target_hit_bonus, depth_bonus=depth_bonus,
+                     obs_noise=obs_noise,
                      joint_noise=joint_noise, obs_delay_steps=obs_delay_steps)
 
     csv_path = os.path.join(out, "train_log.csv")
@@ -418,6 +420,8 @@ def main(argv=None) -> dict:
                         help="aim-term kernel width in metres (0.5 = pre-v2 behaviour)")
     parser.add_argument("--target-hit-bonus", type=float, default=0.0,
                         help="extra reward when the return lands inside the evaluator's target radius")
+    parser.add_argument("--depth-bonus", type=float, default=0.0,
+                        help="penalty per metre the landing point falls SHORT of the target x (0 = off)")
     parser.add_argument("--params", type=str, default="{}", help="JSON dict merged over tt_sim.scene.DEFAULT_PARAMS")
     parser.add_argument("--resume-from", type=str, default=None, help="continue from a param checkpoint")
     parser.add_argument("--log-std-init-new", type=float, default=None,
@@ -447,6 +451,7 @@ def main(argv=None) -> dict:
         legal_bonus=args.legal_bonus, resume_from=args.resume_from,
         param_space=args.param_space, aim_bonus=args.aim_bonus,
         aim_sigma=args.aim_sigma, target_hit_bonus=args.target_hit_bonus,
+        depth_bonus=args.depth_bonus,
         det_eval_episodes=args.det_eval_episodes, det_eval_every=args.det_eval_every,
         det_eval_seed=args.det_eval_seed, log_std_init_new=args.log_std_init_new,
         obs_noise=args.obs_noise, joint_noise=args.joint_noise, obs_delay_steps=args.obs_delay_steps,
