@@ -18,6 +18,32 @@ Table geometry (ITTF, cited in the constants below): 2.74 m x 1.525 m,
 playing surface at 0.76 m, net 15.25 cm tall spanning the width. The table
 is centred at the world origin with x running along the 2.74 m length and
 y along the 1.525 m width; the robot stands at the x<0 end, facing +x.
+
+Free-base contract (``TableTennisEnv(..., fixed_base=False)``)
+-------------------------------------------------------------
+``fixed_base=True`` is the default and stays the project's scored scene:
+the pelvis is welded, the robot cannot fall, and every observation, event
+and evaluator number is exactly what it has always been. Passing
+``fixed_base=False`` builds the model with the vendor pelvis ``<freejoint>``
+kept (``build_model(fixed_base=False)``) so the G1 must hold itself up, and
+changes three things and nothing else:
+
+  * **Reset.** Every reset places the pelvis free joint at
+    ``(ROBOT_X, 0.0, ROBOT_Z)`` with identity orientation ``(1, 0, 0, 0)``
+    (MuJoCo wxyz) and zero linear/angular velocity, so the robot starts in
+    exactly the pose the welded scene bolts it to. Joints, paddle, table
+    and ball are set up identically to the welded path.
+  * **Observation.** The obs dict gains four keys — ``base.position`` (3),
+    ``base.orientation`` (4, wxyz), ``base.linear_velocity`` (3) and
+    ``base.angular_velocity`` (3). These are emitted **only** in the
+    free-base scene; the welded obs dict is unchanged key for key, which is
+    what lets a base-aware policy detect the free base from the observation
+    alone (see tt_sim.policies.ik_hitter's base-aware IK).
+  * **Events.** ``events`` gains ``"fell"``, latched True once the pelvis
+    drops below FALL_PELVIS_Z. It is a diagnostic only: the episode keeps
+    running to its normal length and ``legal_return()`` is untouched, so a
+    fall costs a return solely through the physics, never through scoring.
+    ``"fell"`` is likewise absent from the welded scene's events.
 """
 from __future__ import annotations
 
@@ -78,6 +104,19 @@ CONTACT_FRICTION = "0.4 0.005 0.0001"  # sliding/torsional/rolling — rubber-is
 ROBOT_STANDBACK_M = 0.4
 ROBOT_X = -(TABLE_HALF_LENGTH + ROBOT_STANDBACK_M)  # -1.77
 ROBOT_Z = 0.793  # unchanged from the vendor pelvis pos / "stand" keyframe height
+
+# Nominal pelvis pose the welded scene bolts the robot to, and the pose the
+# free-base scene resets to. Kept as a (position, wxyz-quaternion) pair so
+# base-aware code (tt_sim.policies.ik_hitter) can name one origin instead of
+# rebuilding it from the two scalars above.
+BASE_NOMINAL_POS = np.array([ROBOT_X, 0.0, ROBOT_Z], dtype=np.float64)
+BASE_NOMINAL_QUAT = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+
+# Free base only: pelvis height (m) below which the episode is latched as a
+# fall. 0.45 m is well under the 0.793 m stand height and under any crouch the
+# stand-pose legs can produce, so it fires on a real collapse, not on a wobble.
+# Diagnostic only — it never changes scoring (see the module docstring).
+FALL_PELVIS_Z = 0.45
 
 # Joint order = .him/contracts/runtime.json extensions.robot.joint_order,
 # which is also the vendored G1 XML's actuator declaration order.
@@ -372,7 +411,13 @@ SIM_DT = 0.002
 DECIMATION = 10  # 0.002 * 10 = 0.02 s = 1 / 50 Hz
 
 
-def _empty_events() -> dict:
+def _empty_events(free_base: bool = False) -> dict:
+    """Fresh per-episode event dict.
+
+    free_base=True adds the single extra key ``"fell"``; the default is the
+    welded scene's dict, unchanged key for key (tt_sim.evaluate writes it
+    straight into evaluator.json's per_trial, which is pinned bit-for-bit).
+    """
     return {
         "contact_paddle": False,
         "bounce_own_side": False,
@@ -388,19 +433,31 @@ def _empty_events() -> dict:
         # episode (dict, see TableTennisEnv._apply_physics_jitter), or None
         # when physics_jitter is off (default).
         "physics": None,
+        # Free base only (absent entirely on the welded scene): latched True
+        # once the pelvis fell below FALL_PELVIS_Z. Diagnostic; scoring is
+        # untouched. See the module docstring's free-base contract.
+        **({"fell": False} if free_base else {}),
     }
 
 
 class TableTennisEnv:
-    """Fixed-base G1 + paddle vs. a served ball. See module docstring for
-    the table/robot layout and tt_sim.policies for the Policy interface
-    this is meant to be driven by.
+    """G1 + paddle vs. a served ball. See module docstring for the
+    table/robot layout and tt_sim.policies for the Policy interface this is
+    meant to be driven by.
+
+    fixed_base=True (the default, and the project's scored configuration)
+    welds the pelvis: the robot cannot fall and every output is exactly what
+    it has always been. fixed_base=False keeps the vendor pelvis free joint
+    so the robot must stand on its own; see the module docstring's free-base
+    contract for the reset pose, the four extra ``base.*`` observation keys
+    and the ``"fell"`` event that mode adds.
     """
 
-    def __init__(self, seed: int, params: dict | None = None):
+    def __init__(self, seed: int, params: dict | None = None, fixed_base: bool = True):
         self.params = {**DEFAULT_PARAMS, **(params or {})}
         self._rng = np.random.default_rng(seed)
-        self.model = build_model(fixed_base=True, paddle=True)
+        self.fixed_base = bool(fixed_base)
+        self.model = build_model(fixed_base=self.fixed_base, paddle=True)
         self.data = mujoco.MjData(self.model)
         self.control_hz = CONTROL_HZ
         self.decimation = DECIMATION
@@ -420,6 +477,19 @@ class TableTennisEnv:
         ball_jid = self._jid("ball_joint")
         self._ball_qpos_adr = self.model.jnt_qposadr[ball_jid]  # start of 7 (pos3+quat4)
         self._ball_dof_adr = self.model.jnt_dofadr[ball_jid]  # start of 6 (lin3+ang3)
+
+        # Free base only: the pelvis free joint's qpos (3 pos + 4 wxyz quat)
+        # and qvel (3 linear + 3 angular) slices, plus the pelvis body whose
+        # world height the fall latch watches. Left None on the welded scene,
+        # where the joint does not exist at all.
+        self._base_qpos_adr: int | None = None
+        self._base_dof_adr: int | None = None
+        self._pelvis_body_id: int | None = None
+        if not self.fixed_base:
+            base_jid = self._jid("floating_base_joint")
+            self._base_qpos_adr = int(self.model.jnt_qposadr[base_jid])
+            self._base_dof_adr = int(self.model.jnt_dofadr[base_jid])
+            self._pelvis_body_id = self._body("pelvis")
 
         self._paddle_body_id = self._body("paddle")
         self._ball_body_id = self._body("ball")
@@ -443,7 +513,7 @@ class TableTennisEnv:
         self._nominal_geom_friction = self.model.geom_friction[self._jitter_geom_ids].copy()
         self._nominal_ball_mass = float(self.model.body_mass[self._ball_body_id])
 
-        self._events: dict = _empty_events()
+        self._events: dict = _empty_events(free_base=not self.fixed_base)
         self._paddle_reset_pos: np.ndarray | None = None
         self._prev_ball_x: float | None = None
         self._prev_touching_table = False
@@ -485,7 +555,15 @@ class TableTennisEnv:
         self.data.qpos[self._joint_qpos_adr] = STAND_POSE
         self.data.ctrl[self._actuator_ids] = STAND_POSE
 
-        self._events = _empty_events()
+        if not self.fixed_base:
+            # Stand the robot exactly where the welded scene bolts it.
+            a = self._base_qpos_adr
+            self.data.qpos[a:a + 3] = BASE_NOMINAL_POS
+            self.data.qpos[a + 3:a + 7] = BASE_NOMINAL_QUAT
+            v = self._base_dof_adr
+            self.data.qvel[v:v + 6] = 0.0
+
+        self._events = _empty_events(free_base=not self.fixed_base)
         self._events["physics"] = self._apply_physics_jitter()
 
         if serve is None:
@@ -523,7 +601,7 @@ class TableTennisEnv:
 
     def _get_obs(self) -> dict:
         d = self.data
-        return {
+        obs = {
             "robot.joint_position": d.qpos[self._joint_qpos_adr].copy(),
             "robot.joint_velocity": d.qvel[self._joint_dof_adr].copy(),
             "ball.position": d.qpos[self._ball_qpos_adr:self._ball_qpos_adr + 3].copy(),
@@ -532,10 +610,27 @@ class TableTennisEnv:
             "paddle.quaternion": d.xquat[self._paddle_body_id].copy(),
             "time_s": self._elapsed_s,
         }
+        if not self.fixed_base:
+            # Free base only: the welded scene must stay unchanged key for
+            # key, so a policy can treat "these keys exist" as "the pelvis
+            # can move" (see tt_sim.policies.ik_hitter's base-aware IK).
+            a, v = self._base_qpos_adr, self._base_dof_adr
+            obs["base.position"] = d.qpos[a:a + 3].copy()
+            obs["base.orientation"] = d.qpos[a + 3:a + 7].copy()  # wxyz
+            obs["base.linear_velocity"] = d.qvel[v:v + 3].copy()
+            obs["base.angular_velocity"] = d.qvel[v + 3:v + 6].copy()
+        return obs
 
     def _update_events(self) -> None:
         d = self.data
         ev = self._events
+
+        # Free base only: latch a fall the first time the pelvis drops below
+        # FALL_PELVIS_Z. The episode deliberately keeps running (see the
+        # module docstring) — this records what happened, it does not score it.
+        if not self.fixed_base and not ev["fell"]:
+            if float(d.xpos[self._pelvis_body_id][2]) < FALL_PELVIS_Z:
+                ev["fell"] = True
 
         # Reaction latency: first time the paddle has moved > 2 cm from its
         # reset pose.

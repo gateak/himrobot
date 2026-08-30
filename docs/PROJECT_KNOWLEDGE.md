@@ -32,6 +32,23 @@ Pelvis drift at contact: ≈2 cm; the hitter's paddle-position belief (bolted-pe
 40 cm when falling. Read: a "stand still and swing" whole-body policy is within reach of the current hitter plus a
 base-pose-aware IK and a light balance controller; stepping/moving is the real whole-body problem (Isaac lane).
 
+**Free base, scored (2026-08-30, 200 serves × seeds 11/2000/4000 = 600 trials per row, `tt_sim.evaluate` mean action).**
+The probe's optimism did not survive scoring, and the base-aware IK it recommended **made things worse**. The option
+shipped: `TableTennisEnv(fixed_base=False)`, `tt_sim.evaluate --free-base`, `eval_seeds --free-base`, an additive
+`metrics["falls"]`, four `base.*` observation keys emitted only on the free base, and base-aware IK in the hitter
+(`IKHitterPolicy(base_aware=True)` / `tt_sim.evaluate --base-aware`; off by default) — all of it gated so the welded scene is
+bit-identical (welded reference re-measured at exactly 73.5 % / 28.5 % / 0.39 m). Numbers: the shipped
+`param_residual_v2_wa0` scores **54.0 % legal with base awareness OFF and 39.3 % with it ON**, against 73.5 % welded;
+the plain hitter 33.7 % OFF / 28.3 % ON against 45.3 % welded. Stand rates 80.7 % / 63.0 % (wa0) and 90.7 % / 80.0 %
+(hitter). Why awareness loses even though it works: it *does* fix the kinematics — blade-to-target error at contact
+drops 0.167 m → 0.066 m and contacts rise (52.9 % → 68.3 % among trials that stayed upright, for the hitter) — but
+chasing the drifting pelvis keeps the arm tracking through the disturbance and feeds the reaction torque back into a
+robot with nothing holding it up: pelvis-tilt p90 rises 58.9° → 73.4° and falls roughly double (19.3 % → 37.0 % for
+wa0). Read: unwelding costs ~20 points, not ~5; base-aware IK is the right kinematics in the wrong order and should
+stay OFF on the free base until a balance controller (Isaac whole-body lane) absorbs the arm's reaction, then be
+re-measured there. Caveat: `fell` latches anywhere in the 3 s episode, including after a good return, so `falls` is
+an upper bound. Write-up `work/tt/rl/free_base/RESULT.md`; ~5 min local CPU, no credits.
+
 **HIM answers (2026-08-30, via Akbar).** Ethan: the `publishing_outputs` / `provider_reconciliation_timeout` job failure
 is a legacy flow being cleaned up; the core upload loop should be stable — retry a `him push` + run and report any new
 failure. Still open: the challenge version id, the evaluator's observation contract (ball state? base pose?), control
