@@ -109,6 +109,14 @@ required MP4 ≤ 50 MB; the listing is public and quarantined (`/api/v1/source-u
 user-created community challenges (via `him catalog create-challenge`) and is a dead end for this challenge today.
 Stop looking for a challenge version id.
 
+**ENTERED (2026-09-01).** `him upload` of hitter v3 published:
+`https://arena.himrobotics.com/uploads/source_cfefeaf6ba8370a5e61d` (public, quarantined, downloads allowed).
+Archive: `work/tt/entry/himrobot_v3_entry.zip` (weights `param_residual_v3_s0final.npz` + `param_residual_np.py`
++ README, 28 KB, sha256 a633644c…). Video: the 10-serve `summary.mp4` (9/10 legal, 4/10 target). Caption metrics:
+**1,000 serves, seed 2000, mean action: 78.6 % legal / 47.0 % target / 0.288 m / 88.3 % contact / 452 ms.** The
+listing's challenge object carries the internal id `challengev_tt_forehand_0_1_0`, which the community-challenges
+API still rejects — it is not an `arena submit` target. No credits spent (uploads are free).
+
 **What "submitting" is (2026-08-30, from Akbar reading the Arena page).** The table-tennis challenge page shows no
 challenge version, interface or trial count; Ethan's own entry is a package-reported run: "Policy-driven fixed-base
 MuJoCo demo for a 29-DoF Unitree G1 on one qualified center-lane feed, followed by measured 1,000-feed simulation
