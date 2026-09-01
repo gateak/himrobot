@@ -94,10 +94,20 @@ submit <challenge_version_id> --package <digest> --entrypoint <ep>`. `POST /api/
 answers but is a **contract rehearsal only** (provider `fake-local-package-v1`: "did not execute uploaded user
 code or claim task performance" — pkgrun_196031dfa954bcf859cc). **So HIM's server no longer executes user code
 outside an arena submission**; every other result is package-reported (run it yourself, report the numbers), which
-matches Ethan's own entry. The challenge version id is therefore the only blocker for an official scored run. A
+matches Ethan's own entry. A
 final legacy job (`job_0372111e7b28f1790d1d`, 2026-09-01) ran its simulation, reached `publishing_outputs`, and
-became unreadable (404) under the new API — uncharged. The v3 package is pushed and approved-private under 0.1.7
-(digest `sha256:14f2708283…`, commit 7e4c86b, all four declared tests passed server-side).
+became unreadable (404) under the new API — uncharged; a cancel attempt returned `cancel_window_closed`. The v3
+package is pushed and approved-private under 0.1.7 (digest `sha256:14f2708283…`, commit 7e4c86b, all four declared
+tests passed server-side).
+
+**THE ENTRY PATH IS `him upload` (found 2026-09-01; it existed since CLI 0.1.3 and was missed).** The Table Tennis
+challenge is **not** an arena community challenge — every candidate id 404s, including the open-build challenge's
+own id, and no community-challenge listing endpoint exists. Site entries (Ethan's, Kyle Jeffrey's crawler) are
+**source-upload listings**: `him upload <zip> --video <mp4> --name … --caption … --run-command …`, whose defaults
+are literally `--challenge table-tennis-targeted-forehand --robot unitree-g1 --simulator mujoco`. Video is a
+required MP4 ≤ 50 MB; the listing is public and quarantined (`/api/v1/source-uploads`). `arena submit` targets
+user-created community challenges (via `him catalog create-challenge`) and is a dead end for this challenge today.
+Stop looking for a challenge version id.
 
 **What "submitting" is (2026-08-30, from Akbar reading the Arena page).** The table-tennis challenge page shows no
 challenge version, interface or trial count; Ethan's own entry is a package-reported run: "Policy-driven fixed-base
