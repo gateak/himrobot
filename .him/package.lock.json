@@ -26,6 +26,50 @@
       "command": [
         "python",
         "-m",
+        "tt_sim.evaluate_stance",
+        "--policy",
+        "tt_sim.policies.param_residual_np:NumpyParamResidualPolicy",
+        "--trials",
+        "10",
+        "--video"
+      ],
+      "contract_digests": [
+        "sha256:543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139"
+      ],
+      "execution_mode": "python",
+      "id": "evaluate",
+      "image_digest": null,
+      "image_ref": null,
+      "resource_class": "cpu-standard",
+      "working_directory": "."
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "tt_sim.evaluate_stance",
+        "--policy",
+        "tt_sim.policies.param_residual_np:NumpyParamResidualPolicy",
+        "--trials",
+        "1000",
+        "--seed",
+        "2000",
+        "--no-trajectory"
+      ],
+      "contract_digests": [
+        "sha256:543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139"
+      ],
+      "execution_mode": "python",
+      "id": "evaluate-1000",
+      "image_digest": null,
+      "image_ref": null,
+      "resource_class": "cpu-standard",
+      "working_directory": "."
+    },
+    {
+      "command": [
+        "python",
+        "-m",
         "tt_sim.evaluate",
         "--policy",
         "ik_hitter",
@@ -37,7 +81,36 @@
         "sha256:543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139"
       ],
       "execution_mode": "python",
-      "id": "evaluate",
+      "id": "evaluate-hitter",
+      "image_digest": null,
+      "image_ref": null,
+      "resource_class": "cpu-standard",
+      "working_directory": "."
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "tt_sim.rl.ppo",
+        "--residual",
+        "--residual-scale",
+        "0.2",
+        "--vel-penalty",
+        "1e-5",
+        "--legal-bonus",
+        "10",
+        "--n-envs",
+        "64",
+        "--minutes",
+        "420",
+        "--eval-every-steps",
+        "100000"
+      ],
+      "contract_digests": [
+        "sha256:543a4d9db4d1894e498abc5c6cb7983a991028032fe0421a68a5ffb4cedef139"
+      ],
+      "execution_mode": "python",
+      "id": "train",
       "image_digest": null,
       "image_ref": null,
       "resource_class": "cpu-standard",
@@ -74,8 +147,8 @@
       },
       {
         "path": ".him/commands/README.md",
-        "sha256": "b61fa657a4c026e74a3cdb5045a585b5fc1baea1ef2bc97561fc47709daaf792",
-        "size_bytes": 1758,
+        "sha256": "a9f85c4bf4a67195dc9a7abb0842b3802a34743e893c8498a39f80c08c067ce0",
+        "size_bytes": 2155,
         "visibility": "private"
       },
       {
@@ -104,8 +177,8 @@
       },
       {
         "path": ".him/him.yaml",
-        "sha256": "9c2b446045940152a48dc03ef619d22d4b362ff623fd050296024e6940300cbc",
-        "size_bytes": 3547,
+        "sha256": "c41604299a89dc75f11b04fa32bbe05ffaf177efc71b4660e414c9d8508b07be",
+        "size_bytes": 5667,
         "visibility": "private"
       },
       {
@@ -139,10 +212,10 @@
     "name": "him",
     "version": "1.0.0-local"
   },
-  "lock_digest": "sha256:95fbb59abd3cc4723aa98304d1d643b0fe086195a7e5babd7d61e445661b5c1d",
+  "lock_digest": "sha256:14f2708283d13cfbb6fc6110be828f1eee4de534494f881b3a584eb70a343b2e",
   "package": {
     "kind": "brain",
-    "manifest_digest": "sha256:2480505009b05bb770c09ab2ff796f7a4637a4e46d52983aaafcbb68da5c7bb0",
+    "manifest_digest": "sha256:362023ac6233ccf95774a61862f176f268beab7df40b6de86786c4fb879b73ca",
     "name": "himrobot",
     "version": "0.1.0"
   },
@@ -150,7 +223,7 @@
   "source": {
     "clean": false,
     "commit": null,
-    "digest": "sha256:5bc1746c53b6d39707f257868bb5c277723755044471f4b20fce558762201231",
+    "digest": "sha256:28b3668768b81314441207ddfbab6588a11f9090b83e809ad36ef4c5258c01be",
     "repository": null,
     "submodules": {},
     "type": "git"
