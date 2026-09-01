@@ -84,6 +84,21 @@ is a legacy flow being cleaned up; the core upload loop should be stable — ret
 failure. Still open: the challenge version id, the evaluator's observation contract (ball state? base pose?), control
 rate, trial count, and whether the challenge scene is free-standing (Akbar: "the bot needs to stand and move").
 
+**CLI 0.1.7 — the guided-run flow is gone (2026-09-01).** HIM's newest SDK wheel is 0.1.7
+(`https://arena.himrobotics.com/cli/him_sdk-0.1.7-py3-none-any.whl`; 0.1.8+ do not exist), now installed. It
+**removes `him run` and `him job` entirely** (the functions remain in `cli.py` as unregistered dead code) — this is
+the "legacy flow" Ethan meant; the `publishing_outputs` / `provider_reconciliation_timeout` deaths were that flow
+being decommissioned. What remains: `him push` (careful: **visibility now defaults to public** — pass
+`--visibility private`), `him watch <pkgrun_id>`, `him compute` (= `machine launch`), and `him arena
+submit <challenge_version_id> --package <digest> --entrypoint <ep>`. `POST /api/v1/packages/<digest>/runs` still
+answers but is a **contract rehearsal only** (provider `fake-local-package-v1`: "did not execute uploaded user
+code or claim task performance" — pkgrun_196031dfa954bcf859cc). **So HIM's server no longer executes user code
+outside an arena submission**; every other result is package-reported (run it yourself, report the numbers), which
+matches Ethan's own entry. The challenge version id is therefore the only blocker for an official scored run. A
+final legacy job (`job_0372111e7b28f1790d1d`, 2026-09-01) ran its simulation, reached `publishing_outputs`, and
+became unreadable (404) under the new API — uncharged. The v3 package is pushed and approved-private under 0.1.7
+(digest `sha256:14f2708283…`, commit 7e4c86b, all four declared tests passed server-side).
+
 **What "submitting" is (2026-08-30, from Akbar reading the Arena page).** The table-tennis challenge page shows no
 challenge version, interface or trial count; Ethan's own entry is a package-reported run: "Policy-driven fixed-base
 MuJoCo demo for a 29-DoF Unitree G1 on one qualified center-lane feed, followed by measured 1,000-feed simulation
