@@ -19,7 +19,9 @@ work/
 .claude/
 
 # Keep the committed test fixtures despite the data/ rule above
-!tt_sim/tests/data/
-!tt_sim/tests/data/*.npz
+!tests/data/
+!tests/data/*
 MUJOCO_LOG.TXT
 .venv
+himrobot.egg-info/
+*.egg-info/
