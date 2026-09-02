@@ -163,7 +163,7 @@ def collect_rollout(vec: VecTT, model: ActorCritic, obs_rms: RunningMeanStd,
                      rollout_steps: int, device: torch.device, obs_dim: int = OBS_DIM):
     n = vec.n_envs
     obs_buf = np.zeros((rollout_steps, n, obs_dim), dtype=np.float32)
-    act_buf = np.zeros((rollout_steps, n, ACT_DIM), dtype=np.float32)
+    act_buf = np.zeros((rollout_steps, n, vec.act_dim), dtype=np.float32)  # 29 for VecTT, 12 for VecTTBalance
     logp_buf = np.zeros((rollout_steps, n), dtype=np.float32)
     rew_buf = np.zeros((rollout_steps, n), dtype=np.float32)
     val_buf = np.zeros((rollout_steps, n), dtype=np.float32)

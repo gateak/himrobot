@@ -93,6 +93,7 @@ from himrobot.rl.env import ACT_DIM, MAX_EPISODE_STEPS, TARGET_HIT_RADIUS_M, fla
 from himrobot.rl.ppo import (  # noqa: E402
     ActorCritic,
     RunningMeanStd,
+    collect_rollout,
     compute_gae,
     pick_device,
     ppo_update,
@@ -104,52 +105,6 @@ ROLLOUT_STEPS = 128
 EPISODE_WINDOW = 200
 LOG_STD_INIT = -1.6
 LOG_STD_FINAL = -2.5
-
-
-def collect_rollout(vec: VecTTBalance, model: ActorCritic, obs_rms: RunningMeanStd,
-                    rollout_steps: int, device: torch.device, obs_dim: int = BALANCE_OBS_DIM):
-    """himrobot.rl.ppo.collect_rollout, copied rather than imported: that
-    version hardcodes its action buffer at env.py's ACT_DIM (29), the
-    RL-facing action width for VecTT/VecTTResidual -- not a parameter, so it
-    cannot be reused as-is for VecTTBalance's 12-dim a_rl. Every other line
-    is identical."""
-    n = vec.n_envs
-    obs_buf = np.zeros((rollout_steps, n, obs_dim), dtype=np.float32)
-    act_buf = np.zeros((rollout_steps, n, BALANCE_ACT_DIM), dtype=np.float32)
-    logp_buf = np.zeros((rollout_steps, n), dtype=np.float32)
-    rew_buf = np.zeros((rollout_steps, n), dtype=np.float32)
-    val_buf = np.zeros((rollout_steps, n), dtype=np.float32)
-    done_buf = np.zeros((rollout_steps, n), dtype=np.float32)
-    episode_stats: list[dict] = []
-
-    obs = vec._last_obs.copy()
-    for t in range(rollout_steps):
-        obs_rms.update(obs.astype(np.float64))
-        norm_obs = obs_rms.normalize(obs)
-        obs_t = torch.as_tensor(norm_obs, dtype=torch.float32, device=device)
-        action_t, logp_t, value_t = model.act(obs_t)
-        action_np = action_t.cpu().numpy()
-        clipped = np.clip(action_np, -1.0, 1.0)
-
-        next_obs, reward, done, infos = vec.step(clipped)
-
-        obs_buf[t] = obs
-        act_buf[t] = action_np
-        logp_buf[t] = logp_t.cpu().numpy()
-        rew_buf[t] = reward
-        val_buf[t] = value_t.cpu().numpy()
-        done_buf[t] = done.astype(np.float32)
-        episode_stats.extend(info["episode"] for info in infos if "episode" in info)
-
-        obs = next_obs
-
-    norm_obs = obs_rms.normalize(obs)
-    obs_t = torch.as_tensor(norm_obs, dtype=torch.float32, device=device)
-    with torch.no_grad():
-        _, last_value_t = model.forward(obs_t)
-    last_value = last_value_t.cpu().numpy()
-
-    return obs_buf, act_buf, logp_buf, rew_buf, val_buf, done_buf, last_value, episode_stats
 
 
 def deterministic_eval(model: ActorCritic, obs_rms: RunningMeanStd, jnt_range: np.ndarray,
