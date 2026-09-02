@@ -126,6 +126,17 @@ path is `him push` + `him run --entrypoint evaluate` (10 serves, video) and `eva
 metrics), not `him arena submit`. Standing/moving is a goal Akbar sets, not a published requirement; Isaac Lab has
 not been used yet (`tools/box/gpu_box_setup.sh` is ready, never run).
 
+**Balance v1 (2026-09-01/02) — first free-standing gain.** Free base at the v3 stance, no balance controller: the
+shipped v3 policy scores **45.0 % legal / 5.0 % target / 0.61 m, falls 21.8 %** (600 trials, seeds 11/2000/4000;
+worse than v2 wa0's 54.0 % because v3's faster placement swings kick harder). A leg-only PPO residual
+(`himrobot/rl/balance_env.py` VecTTBalance: 12 leg joints, ±0.15 rad around STAND_POSE, obs 99 + 12-dim base
+block, the v3 expert unchanged on waist+arm, zero-init head so step 0 == baseline; `himrobot.rl.balance_train`;
+torch-free runtime `himrobot/policies/balance_np.py`) trained 3 seeds × 4.6 h on the Mac scores **52.3 / 59.2 /
+62.7 % legal** with contacts 62 % → 80–85 % — but s2 (62.7 %) falls **25.5 %**, more than the baseline, while s0
+(52.3 %) falls 11.8 %: selection by legal rate with a fall penalty equal to the legal bonus buys returns with
+falls. v1.1: fall penalty ≥ 30, selection by legal × stand, warm start from s2, per-trial fall timing.
+`results/balance_v1/RESULT.md`, design `docs/design/balance_v1.md`.
+
 **Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
 settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene
 reach ceiling ~81 % is effectively reached), and placement broke open: **s0/final = 77.0 % legal / 49.5 % target hits /
