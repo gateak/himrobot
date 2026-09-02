@@ -144,7 +144,12 @@ paddle still collide) the same 40 serves (seed 11) give: no balance 52.5 % legal
 selection, solid table) was stopped after 1 h for that reason. **v1.2 (running, 4 × ~4.5 h):** phase-through scene,
 fall penalty 30, legal × stand selection, stay-in-box pelvis term (`--pos-penalty 2`, box ±0.15 × ±0.30 m, no pull
 to a point — "stay in a general place, free to shuffle sideways"), leg authority 0.15 (bracing) vs 0.40 (weight
-shift), fresh vs warm-started from s2.
+shift), fresh vs warm-started from s2. **Result (600 serves each, honest scene): no leg-only policy fixes
+falling** — v3 alone 61.5 % legal / **75.7 % falls**; best balance run c 39.2 % / 60.3 % falls, a 56.7 % / 73.7 %.
+The 55 % stand rates during training were overfits of the 40-serve selection set. Read: the swing's reaction
+momentum is not absorbable by ±0.15–0.40 rad leg corrections around STAND_POSE; balance here is whole-body
+(Isaac Lab lane, mocap prior). Next, free: a stance sweep (wider/lower STAND_POSE) of the plain expert.
+`results/balance_v1_2/RESULT.md`.
 
 **Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
 settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene

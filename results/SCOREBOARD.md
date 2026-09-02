@@ -31,3 +31,5 @@ set are one set measured three times) and seeds 11/2000/4000 (disjoint, the scor
 - Row 7 is not a result yet — it is training now; this row exists so the ledger records that a
   run is in flight and unscored, per `CLAUDE.md`'s "numbers come only from the deterministic
   evaluator" rule (a training-time reward curve does not count, scored or not).
+| 8 | Param residual v3 `s0/final` — free base, **honest scene** (`robot_table_collision=false`), no balance | free base, stance shifted | 11/2000/4000, 600 trials | 61.5 % | 4.8 % | 0.69 m | **75.7 %** | `results/balance_v1_2/RESULT.md` |
+| 9 | Balance v1.2 c (0.40 authority, fresh) — best fall reduction of 4 runs | free base, honest scene | 11/2000/4000, 600 trials | 39.2 % | 4.0 % | 0.68 m | 60.3 % | `results/balance_v1_2/RESULT.md` (a: 56.7 % / 73.7 % falls) |
