@@ -160,6 +160,18 @@ STAND_POSE = np.array([
     0.2, 0.2, 0, 1.28, 0, 0, 0,   # left arm
     0.2, -0.2, 0, 1.28, 0, 0, 0,  # right arm
 ], dtype=np.float64)
+# Optional leg-stance override, read once at import like TT_ROBOT_Y: twelve
+# comma-separated radians for JOINT_ORDER slots 0-11 (left leg hip
+# pitch/roll/yaw, knee, ankle pitch/roll; then the right leg). Absent (the
+# default) leaves STAND_POSE exactly as above -- straight legs, the vendor
+# "stand" keyframe -- so every parity fixture is untouched. Used by the
+# free-base stance sweep (results/stance_sweep/RESULT.md).
+_LEG_POSE_ENV = os.environ.get("TT_LEG_POSE", "")
+if _LEG_POSE_ENV:
+    _leg = np.array([float(v) for v in _LEG_POSE_ENV.split(",")], dtype=np.float64)
+    if _leg.shape != (12,):
+        raise ValueError(f"TT_LEG_POSE needs 12 comma-separated values, got {_leg.shape}")
+    STAND_POSE[:12] = _leg
 
 # Paddle geometry: identical to sim/g1_model.py's PADDLE_XML (same welded
 # 0.17 kg disc on the right wrist), except paddle_blade keeps real collision
