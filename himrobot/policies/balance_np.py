@@ -25,7 +25,7 @@ from himrobot.paths import ASSETS_DIR
 from himrobot.sim import scene
 from himrobot.policies.base import Policy
 from himrobot.policies.param_residual_np import NumpyParamResidualPolicy
-from himrobot.rl.balance_env import BALANCE_SCALE, combined_action, flatten_balance_obs, joint_target
+from himrobot.rl.balance_env import combined_action, flatten_balance_obs, joint_target
 from himrobot.rl.demos import target_to_action
 from himrobot.rl.env import ACT_DIM, flatten_obs
 
@@ -46,9 +46,7 @@ class NumpyBalancePolicy(Policy):
         self.layers = [(z[f"W{i}"].astype(np.float64), z[f"b{i}"].astype(np.float64)) for i in range(3)]
         self.rms_mean = z["rms_mean"].astype(np.float64)
         self.rms_var = z["rms_var"].astype(np.float64)
-        self.balance_scale = float(z["balance_scale"])
-        if self.balance_scale != BALANCE_SCALE:
-            raise ValueError(f"{path}: balance_scale {self.balance_scale} != code's {BALANCE_SCALE}")
+        self.balance_scale = float(z["balance_scale"])  # leg authority the policy was trained with
         self.obs_version = int(z["obs_version"])
         self.jnt_range = z["jnt_range"].astype(np.float64)
         expert_npz = str(z["expert_npz"])
@@ -87,4 +85,4 @@ class NumpyBalancePolicy(Policy):
 
         combined = combined_action(a_rl, expert_action)
         self._prev_action = combined
-        return joint_target(combined, self.jnt_range)
+        return joint_target(combined, self.jnt_range, self.balance_scale)

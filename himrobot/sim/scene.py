@@ -205,7 +205,7 @@ def _contact_xml(paddle: bool) -> str:
     return f"\n  <contact>\n{pairs}  </contact>\n"
 
 
-def _build_xml(fixed_base: bool, paddle: bool) -> str:
+def _build_xml(fixed_base: bool, paddle: bool, robot_table_collision: bool = True) -> str:
     with open(G1_XML) as fh:
         text = fh.read()
     text = text.replace('meshdir="assets"', f'meshdir="{MESHDIR}"')
@@ -239,12 +239,27 @@ def _build_xml(fixed_base: bool, paddle: bool) -> str:
     if kf_start < 0 or kf_end < 0:
         raise RuntimeError("vendored G1 keyframe not found; XML changed?")
     text = text[:kf_start] + text[kf_end + len("</keyframe>"):]
-    text = text.replace("</worldbody>", _SCENE_XML + "  </worldbody>", 1)
+    scene_xml = _SCENE_XML
+    if not robot_table_collision:
+        # MuJoCo collides two geoms iff (contype_a & conaffinity_b) or
+        # (contype_b & conaffinity_a). Table and net move to bit 2 only; ball
+        # and paddle_blade carry bits 1|2 so they still meet the table, the
+        # floor and the robot; robot geoms (bit 1) no longer meet the table.
+        scene_xml = scene_xml.replace('<geom name="table_top" type="box"',
+                                      '<geom name="table_top" type="box" contype="2" conaffinity="2"', 1)
+        scene_xml = scene_xml.replace('<geom name="net" type="box"',
+                                      '<geom name="net" type="box" contype="2" conaffinity="2"', 1)
+        scene_xml = scene_xml.replace('<geom name="ball" type="sphere"',
+                                      '<geom name="ball" type="sphere" contype="3" conaffinity="3"', 1)
+        text = text.replace('<geom name="paddle_blade" type="cylinder"',
+                            '<geom name="paddle_blade" type="cylinder" contype="3" conaffinity="3"', 1)
+    text = text.replace("</worldbody>", scene_xml + "  </worldbody>", 1)
     text = text.replace("</mujoco>", _contact_xml(paddle) + "</mujoco>", 1)
     return text
 
 
-def build_model(fixed_base: bool = True, paddle: bool = True) -> mujoco.MjModel:
+def build_model(fixed_base: bool = True, paddle: bool = True,
+                robot_table_collision: bool = True) -> mujoco.MjModel:
     """Build the G1 + paddle + table + ball MuJoCo model.
 
     fixed_base=True (default) welds the pelvis in the standing pose above
@@ -252,7 +267,7 @@ def build_model(fixed_base: bool = True, paddle: bool = True) -> mujoco.MjModel:
     keeps the vendor free-floating pelvis, for callers that want the
     unmodified G1 dynamics with the table-tennis scene grafted on.
     """
-    return mujoco.MjModel.from_xml_string(_build_xml(fixed_base, paddle))
+    return mujoco.MjModel.from_xml_string(_build_xml(fixed_base, paddle, robot_table_collision))
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +285,12 @@ DEFAULT_PARAMS = {
     "target_depth": "deep",
     "risk_preference": 0.45,
     "physics_jitter": 0.0,  # 0 = off; see TableTennisEnv._apply_physics_jitter
+    # True (default): the robot's body collides with the table and net as always.
+    # False: only the ball and paddle do -- the body passes through them, so a
+    # free-standing robot cannot lean on the table and count as upright
+    # (found 2026-09-01: balance v1 learned exactly that). Welded scene: no-op
+    # in practice, kept default for bit-exact parity.
+    "robot_table_collision": True,
 }
 
 
@@ -470,7 +491,8 @@ class TableTennisEnv:
         self.params = {**DEFAULT_PARAMS, **(params or {})}
         self._rng = np.random.default_rng(seed)
         self.fixed_base = bool(fixed_base)
-        self.model = build_model(fixed_base=self.fixed_base, paddle=True)
+        self.model = build_model(fixed_base=self.fixed_base, paddle=True,
+                                 robot_table_collision=bool(self.params["robot_table_collision"]))
         self.data = mujoco.MjData(self.model)
         self.control_hz = CONTROL_HZ
         self.decimation = DECIMATION

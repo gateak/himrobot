@@ -63,6 +63,8 @@ BALANCE_OBS_DIM = OBS_DIM + BASE_BLOCK_DIM  # 111
 BALANCE_SCALE = 0.15  # rad, leg action scale
 _ARM_WAIST_SCALE = 3.0  # rad -- identical to env.map_action's ACTION_SCALE on non-leg dims
 
+DEFAULT_BOX_X = 0.15  # m, half-width of the free zone around the nominal pelvis x
+DEFAULT_BOX_Y = 0.30  # m, half-width in y (side to side)
 DEFAULT_TILT_PENALTY = 0.5
 DEFAULT_ALIVE_BONUS = 0.05
 DEFAULT_FALL_PENALTY = 10.0
@@ -90,6 +92,15 @@ def tilt_angle(gravity_body: np.ndarray) -> float:
     return float(np.arccos(np.clip(-float(gravity_body[2]), -1.0, 1.0)))
 
 
+def box_excursion_sq(base_position: np.ndarray, box_x: float, box_y: float) -> float:
+    """Squared distance of the pelvis outside the +-box_x / +-box_y zone
+    around scene.BASE_NOMINAL_POS (x, y only); 0 anywhere inside it."""
+    d = np.asarray(base_position, dtype=np.float64)[:2] - scene.BASE_NOMINAL_POS[:2]
+    ex = max(0.0, abs(float(d[0])) - box_x)
+    ey = max(0.0, abs(float(d[1])) - box_y)
+    return ex * ex + ey * ey
+
+
 def flatten_balance_obs(base_obs: np.ndarray, obs: dict) -> np.ndarray:
     """obs_version=1 layout: env.flatten_obs's 99-dim row, then the 12-dim
     base block described in the module docstring. ``obs`` is the raw
@@ -113,12 +124,14 @@ def combined_action(a_rl: np.ndarray, a_exp: np.ndarray) -> np.ndarray:
                            np.asarray(a_exp, dtype=np.float64)[12:]])
 
 
-def joint_target(a_comb: np.ndarray, jnt_range: np.ndarray) -> np.ndarray:
-    """STAND_POSE + concat(a_comb[:12] * BALANCE_SCALE, a_comb[12:] * 3.0),
+def joint_target(a_comb: np.ndarray, jnt_range: np.ndarray,
+                 balance_scale: float = BALANCE_SCALE) -> np.ndarray:
+    """STAND_POSE + concat(a_comb[:12] * balance_scale, a_comb[12:] * 3.0),
     clipped to each joint's mujoco range. The arm/waist arithmetic is
-    env.map_action's own STAND_POSE + action * ACTION_SCALE, bit for bit."""
+    env.map_action's own STAND_POSE + action * ACTION_SCALE, bit for bit.
+    balance_scale is the leg authority in rad (default BALANCE_SCALE, v1)."""
     a_comb = np.asarray(a_comb, dtype=np.float64)
-    delta = np.concatenate([a_comb[:BALANCE_ACT_DIM] * BALANCE_SCALE,
+    delta = np.concatenate([a_comb[:BALANCE_ACT_DIM] * balance_scale,
                             a_comb[BALANCE_ACT_DIM:] * _ARM_WAIST_SCALE])
     target = scene.STAND_POSE + delta
     return np.clip(target, jnt_range[:, 0], jnt_range[:, 1])
@@ -144,11 +157,24 @@ class VecTTBalance(VecTT):
                  expert_npz: str = DEFAULT_EXPERT_NPZ, vel_penalty: float = 0.0005,
                  legal_bonus: float = 5.0, obs_noise: float = 0.0, joint_noise: float = 0.0,
                  tilt_penalty: float = DEFAULT_TILT_PENALTY, alive_bonus: float = DEFAULT_ALIVE_BONUS,
-                 fall_penalty: float = DEFAULT_FALL_PENALTY):
+                 fall_penalty: float = DEFAULT_FALL_PENALTY, balance_scale: float = BALANCE_SCALE,
+                 pos_penalty: float = 0.0, box_x: float = DEFAULT_BOX_X, box_y: float = DEFAULT_BOX_Y):
         self.expert_npz = expert_npz
         self.tilt_penalty = float(tilt_penalty)
         self.alive_bonus = float(alive_bonus)
         self.fall_penalty = float(fall_penalty)
+        # Leg authority (rad). v1 = 0.15: bracing only. Larger values let the
+        # policy shift its weight and shuffle -- needed for "stay in a general
+        # place", priced by the box term below.
+        self.balance_scale = float(balance_scale)
+        # Stay-in-box term, default off (0.0 = v1 reward bit for bit): the
+        # pelvis may drift freely inside +-box_x / +-box_y of BASE_NOMINAL_POS;
+        # only the excursion beyond the box is penalized, quadratically, so a
+        # sideways shuffle inside the box costs nothing and there is no pull
+        # toward one exact spot.
+        self.pos_penalty = float(pos_penalty)
+        self.box_x = float(box_x)
+        self.box_y = float(box_y)
         # One expert per env slot, reset alongside that slot's TableTennisEnv
         # (see _reset_one) -- same pattern as VecTTResidual._hitters.
         self._experts = [NumpyParamResidualPolicy(expert_npz) for _ in range(n_envs)]
@@ -225,7 +251,7 @@ class VecTTBalance(VecTT):
 
         for i in range(self.n_envs):
             combined = combined_action(actions[i], self._expert_action[i])
-            obs, events = self.envs[i].step(joint_target(combined, self._jnt_range))
+            obs, events = self.envs[i].step(joint_target(combined, self._jnt_range, self.balance_scale))
 
             reward, done = self._reward_and_done(i, obs, events, combined)
 
@@ -233,6 +259,8 @@ class VecTTBalance(VecTT):
             tilt = tilt_angle(gravity_body)
             reward += self.alive_bonus
             reward -= self.tilt_penalty * tilt ** 2
+            if self.pos_penalty > 0.0:
+                reward -= self.pos_penalty * box_excursion_sq(obs["base.position"], self.box_x, self.box_y)
 
             if events.get("fell") and not self._fell_latched[i]:
                 reward -= self.fall_penalty

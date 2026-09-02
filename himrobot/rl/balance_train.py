@@ -78,6 +78,8 @@ from himrobot.rl.balance_env import (  # noqa: E402
     BALANCE_ACT_DIM,
     BALANCE_OBS_DIM,
     BALANCE_SCALE,
+    DEFAULT_BOX_X,
+    DEFAULT_BOX_Y,
     DEFAULT_ALIVE_BONUS,
     DEFAULT_EXPERT_NPZ,
     DEFAULT_FALL_PENALTY,
@@ -109,7 +111,7 @@ LOG_STD_FINAL = -2.5
 
 def deterministic_eval(model: ActorCritic, obs_rms: RunningMeanStd, jnt_range: np.ndarray,
                        device: torch.device, n_serves: int, seed: int, expert_npz: str,
-                       params: dict | None = None) -> dict[str, float]:
+                       params: dict | None = None, balance_scale: float = BALANCE_SCALE) -> dict[str, float]:
     """Score the MEAN (deterministic) action on a fixed serve set, the way
     himrobot.eval.evaluate would -- see module docstring. Fresh env/expert per
     call; obs_rms is read, never updated."""
@@ -137,7 +139,7 @@ def deterministic_eval(model: ActorCritic, obs_rms: RunningMeanStd, jnt_range: n
             mean, _logp, _value = model.act(obs_t, deterministic=True)
             a_rl = np.clip(mean.cpu().numpy()[0].astype(np.float64), -1.0, 1.0)
             combined = combined_action(a_rl, expert_action)
-            obs, info = env.step(joint_target(combined, jnt_range))
+            obs, info = env.step(joint_target(combined, jnt_range, balance_scale))
             prev_action = combined
             expert_action = target_to_action(expert.act(obs))
         is_legal = bool(scene.legal_return(info))
@@ -175,7 +177,8 @@ def _det_key(det: dict[str, float], select: str = "legal") -> tuple[float, float
 
 
 def save_checkpoint(path: str, model: ActorCritic, obs_rms: RunningMeanStd, episode: int,
-                    expert_npz: str, jnt_range: np.ndarray, extra: dict | None = None) -> None:
+                    expert_npz: str, jnt_range: np.ndarray, extra: dict | None = None,
+                    balance_scale: float = BALANCE_SCALE) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     ckpt = {
         "model_state": model.state_dict(),
@@ -183,7 +186,7 @@ def save_checkpoint(path: str, model: ActorCritic, obs_rms: RunningMeanStd, epis
         "act_dim": BALANCE_ACT_DIM,
         "hidden": model.actor.hidden,  # the model's ACTUAL hidden size, not this module's default
         "obs_version": OBS_VERSION,
-        "balance_scale": BALANCE_SCALE,
+        "balance_scale": float(balance_scale),
         "expert_npz": expert_npz,
         "jnt_range": jnt_range,
         "obs_rms_mean": obs_rms.mean,
@@ -243,7 +246,8 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
           log_std_init: float = LOG_STD_INIT, log_std_final: float = LOG_STD_FINAL,
           rollout_steps: int = ROLLOUT_STEPS, params: dict | None = None,
           det_eval_episodes: int = 0, det_eval_every: int = 20, det_eval_seed: int = 1001,
-          select: str = "legal", resume_from: str | None = None) -> dict:
+          select: str = "legal", resume_from: str | None = None, balance_scale: float = BALANCE_SCALE,
+          pos_penalty: float = 0.0, box_x: float = DEFAULT_BOX_X, box_y: float = DEFAULT_BOX_Y) -> dict:
     assert select in SELECT_MODES, select
     os.makedirs(out, exist_ok=True)
     device = pick_device()
@@ -252,7 +256,8 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
 
     vec = VecTTBalance(n_envs=n_envs, seed=seed, params=params or {}, expert_npz=expert_npz,
                       vel_penalty=vel_penalty, legal_bonus=legal_bonus,
-                      tilt_penalty=tilt_penalty, alive_bonus=alive_bonus, fall_penalty=fall_penalty)
+                      tilt_penalty=tilt_penalty, alive_bonus=alive_bonus, fall_penalty=fall_penalty,
+                      balance_scale=balance_scale, pos_penalty=pos_penalty, box_x=box_x, box_y=box_y)
     jnt_range = vec._jnt_range.copy()
 
     model = ActorCritic(BALANCE_OBS_DIM, BALANCE_ACT_DIM, hidden=HIDDEN, log_std_init=log_std_init).to(device)
@@ -273,7 +278,7 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
 
     def det_eval() -> dict:
         return deterministic_eval(model, obs_rms, jnt_range, device, det_eval_episodes, det_eval_seed,
-                                  expert_npz, params)
+                                  expert_npz, params, balance_scale=balance_scale)
 
     csv_path = os.path.join(out, "train_log.csv")
     csv_fh = open(csv_path, "w", newline="")
@@ -302,7 +307,7 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
         nonlocal best_det, best_det_episode
         if best_det is None or _det_key(det, select) > _det_key(best_det, select):
             best_det, best_det_episode = det, episode
-            save_checkpoint(os.path.join(out, "best.pt"), model, obs_rms, episode, expert_npz, jnt_range,
+            save_checkpoint(os.path.join(out, "best.pt"), model, obs_rms, episode, expert_npz, jnt_range, balance_scale=balance_scale,
                             extra={"seed": seed, "det_eval": {**det, "n_serves": det_eval_episodes,
                                                               "seed": det_eval_seed}})
 
@@ -371,14 +376,14 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
         # Weights first: nothing below may cost final.pt (a second Ctrl-C or
         # an eval failure). Then score the final weights so the last
         # stretch of training can still win best.pt.
-        save_checkpoint(os.path.join(out, "final.pt"), model, obs_rms, n_episodes, expert_npz, jnt_range,
+        save_checkpoint(os.path.join(out, "final.pt"), model, obs_rms, n_episodes, expert_npz, jnt_range, balance_scale=balance_scale,
                         extra={"seed": seed})
         final_det = None
         if det_eval_episodes > 0:
             try:
                 final_det = det_eval()
                 maybe_save_best_det(final_det, n_episodes)
-                save_checkpoint(os.path.join(out, "final.pt"), model, obs_rms, n_episodes, expert_npz, jnt_range,
+                save_checkpoint(os.path.join(out, "final.pt"), model, obs_rms, n_episodes, expert_npz, jnt_range, balance_scale=balance_scale,
                                 extra={"seed": seed, "det_eval": final_det})
             except BaseException as exc:  # noqa: BLE001 -- interrupt or eval failure: final.pt is already on disk
                 print(f"[balance] closing det_eval skipped: {exc!r}", flush=True)
@@ -403,6 +408,10 @@ def main(argv: list[str] | None = None) -> dict:
     parser.add_argument("--tilt-penalty", type=float, default=DEFAULT_TILT_PENALTY, help="per-step weight on tilt_rad**2")
     parser.add_argument("--alive-bonus", type=float, default=DEFAULT_ALIVE_BONUS, help="per-step reward for not having fallen yet")
     parser.add_argument("--fall-penalty", type=float, default=DEFAULT_FALL_PENALTY, help="one-off penalty when events['fell'] first latches")
+    parser.add_argument("--balance-scale", type=float, default=BALANCE_SCALE, help="leg authority, rad (v1: 0.15)")
+    parser.add_argument("--pos-penalty", type=float, default=0.0, help="stay-in-box weight (0 = off, v1)")
+    parser.add_argument("--box-x", type=float, default=DEFAULT_BOX_X)
+    parser.add_argument("--box-y", type=float, default=DEFAULT_BOX_Y)
     parser.add_argument("--select", choices=SELECT_MODES, default="legal", help="best.pt ranking (see _det_key)")
     parser.add_argument("--resume-from", type=str, default=None, help="warm start from a balance checkpoint (.pt)")
     parser.add_argument("--expert-npz", type=str, default=DEFAULT_EXPERT_NPZ, help="waist+arm expert weights (NumpyParamResidualPolicy)")
@@ -424,6 +433,7 @@ def main(argv: list[str] | None = None) -> dict:
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
         det_eval_episodes=args.det_eval_episodes, det_eval_every=args.det_eval_every,
         det_eval_seed=args.det_eval_seed, select=args.select, resume_from=args.resume_from,
+        balance_scale=args.balance_scale, pos_penalty=args.pos_penalty, box_x=args.box_x, box_y=args.box_y,
     )
     if args.export:
         best_path = os.path.join(args.out, "best.pt")
