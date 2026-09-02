@@ -156,8 +156,11 @@ all default = today: `TT_WAIST_LIMIT="roll,pitch"` (solver bounds), `TT_LEG_POSE
 (global cap multiplier); and on the honest scene the paddle now meets only the ball (no propping). **Waist locked,
 honest free base, 600 serves: 45.3 % legal / 3.5 % target / 0.68 m, falls 14.8 %** (waist free: 61.5 % / 75.7 %
 falls). Even ±0.1 rad of waist still topples it (waist *motion*, not lean). Stance sweep: crouch+wide lifts
-returns (57 → 72 %) but not standing; with the waist locked the crouch is worse (44 % falls). Next, free: retrain
-the 20-knob parameter residual with the waist locked on the honest free-base scene so the arm earns the reach back.
+returns (57 → 72 %) but not standing; with the waist locked the crouch is worse (44 % falls). **Retrained with the waist locked on the honest free base (`results/free_v4/RESULT.md`, 2 × 74 min Mac): free_v4
+s1/best = 59.7 % legal / 18.0 % target / 0.45 m / 16.8 % falls** on 600 serves (from 45.3 / 3.5 / 0.68 / 14.8).
+Shipped as `assets/policies/param_residual_free_v4_s1best.npz` (run with `TT_WAIST_LIMIT=0,0`, free base,
+`robot_table_collision=false`). The ~17-point gap to the welded 77 % is the torso's reach; the ~17 % falls have no
+knob to fix them — both are the whole-body lane (design in progress: `docs/design/whole_body_v1.md`).
 
 **Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
 settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene

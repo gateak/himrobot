@@ -101,6 +101,19 @@ only the flat ``obs`` dict -- see himrobot.policies.base):
      bit for bit. Plus one more per-serve knob, collision_guard
      (SERVE_PARAM_NOMINAL_V3), default off: a keep-out box on three joint
      limits inside the deep/inner region, see GUARD_BOX / GUARD_REGION.
+  9. WBC accessors (plan()/preview(), see docs/design/whole_body_v1.md): two
+     read-only-to-the-caller additions for a whole-body controller that
+     needs to see the hitter's replanning schedule and its upcoming joint
+     commands without driving anything itself. plan(obs) just runs the same
+     _maybe_replan act() would and hands back self._plan; preview(obs,
+     horizon) forecasts the next `horizon` control-step targets by rolling
+     _swing_target + _solve_ik (the same dispatcher act() uses, so a
+     collision_guard keep-out applies to the forecast too) forward on a
+     private MjData (self._preview_data), never touching self._ik_data/self._plan/any
+     knob -- see preview()'s own docstring for the open-loop assumption
+     this makes (act() re-solves from the *measured* pose every step, so a
+     real disturbance is partly corrected for live; the preview cannot see
+     that and is therefore only ever a forecast, not a promise).
 """
 from __future__ import annotations
 
@@ -280,6 +293,9 @@ IK_JOINT_NAMES = [
 ]
 IK_INDICES = np.array([scene.JOINT_ORDER.index(n) for n in IK_JOINT_NAMES])  # positions in the 29-vector
 N_IK = len(IK_JOINT_NAMES)
+
+# preview()'s forecast step: one control step, matching scene.CONTROL_HZ (50 Hz).
+PREVIEW_DT = 1.0 / scene.CONTROL_HZ
 
 # Empirically-derived (FK sweep, see module docstring, refined against
 # real 20-trial seed-0 runs -- see the task report) forward-reach plane
@@ -617,6 +633,10 @@ class IKHitterPolicy(Policy):
         self._jacp_b = np.zeros((3, self._ik_model.nv))
 
         self._plan: dict | None = None
+        # preview()'s private MjData, built lazily (most rollouts never call
+        # preview() at all, e.g. every existing test and eval run) so it costs
+        # nothing until a WBC caller actually asks for a forecast.
+        self._preview_data: mujoco.MjData | None = None
         self._target_zone = scene.DEFAULT_PARAMS["target_zone"]
         self._target_depth = scene.DEFAULT_PARAMS["target_depth"]
         self._risk = scene.DEFAULT_PARAMS["risk_preference"]
@@ -678,6 +698,75 @@ class IKHitterPolicy(Policy):
                 p_des, n_des, obs["base.position"], obs["base.orientation"])
         action[IK_INDICES] = self._solve_ik(q29, p_des, n_des, plan["w_normal"])
         return action
+
+    # -- WBC accessors (see docs/design/whole_body_v1.md sec 5.2) ---------
+    def plan(self, obs: dict) -> dict | None:
+        """The swing plan act() would use, computed exactly as act() computes
+        it: same _maybe_replan call, same t_now/ball state, so this mutates
+        self._plan exactly as much as act() would and no more (mid-swing
+        that is nothing at all -- see _maybe_replan). A whole-body
+        controller reads t_contact/p_hit/v_in/swing_vel/n_des/t_pre/
+        speed_buffer/t_follow/... from the result; it never touches IK.
+        None before a plan exists or once a swing window has elapsed.
+        """
+        t_now = float(obs["time_s"])
+        ball_pos = np.asarray(obs["ball.position"], dtype=float)
+        ball_vel = np.asarray(obs["ball.velocity"], dtype=float)
+        self._maybe_replan(t_now, ball_pos, ball_vel)
+        return self._plan
+
+    def preview(self, obs: dict, horizon: int) -> np.ndarray:
+        """Open-loop forecast of the next `horizon` act()-shaped targets,
+        shape (horizon, 29): row k-1 is the predicted action at
+        obs["time_s"] + k * PREVIEW_DT, k = 1..horizon.
+
+        Rolls _swing_target(t_now + k*PREVIEW_DT) + _solve_ik (same
+        dispatcher act() calls, collision_guard included) forward on a
+        private MjData (self._preview_data, built lazily on first use),
+        seeding step 1 from the measured q29 (obs["robot.joint_position"])
+        and each later step from the previous step's IK solution -- an
+        open-loop chain, since nothing here can know what the real robot's
+        pose will actually be that far ahead. Rows that fall outside the
+        current plan's swing window (or there is no plan at all) are
+        scene.STAND_POSE copies, exactly act()'s own fallback, evaluated at
+        the forecast time rather than at t_now. The current plan is used
+        as of this call and held fixed for the whole horizon -- this never
+        calls _maybe_replan, so it cannot see a future replan -- and it
+        never writes self._ik_data, self._plan, or any serve-param knob, so
+        calling this between act() calls changes nothing about them
+        (tests/test_wbc_preview.py, tools/make_golden_param_actions.py --check).
+
+        base_aware applies to_shadow_frame exactly as act() does, using the
+        CURRENT base.position/orientation from `obs` for every forecast step
+        (there is no forecast of where the pelvis itself will be).
+        """
+        rows = np.tile(scene.STAND_POSE, (horizon, 1))
+        plan = self._plan
+        if plan is None:
+            return rows
+
+        if self._preview_data is None:
+            self._preview_data = mujoco.MjData(self._ik_model)
+        have_base = self.base_aware and "base.position" in obs and "base.orientation" in obs
+        base_pos = obs.get("base.position")
+        base_quat = obs.get("base.orientation")
+        q_seed = np.asarray(obs["robot.joint_position"], dtype=float).copy()
+
+        t_now = float(obs["time_s"])
+        window_start = plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]
+        window_end = plan["t_contact"] + plan["t_follow"]
+        for k in range(1, horizon + 1):
+            t = t_now + k * PREVIEW_DT
+            if not window_start <= t <= window_end:
+                continue  # STAND_POSE fallback row already in place
+            p_des, n_des = self._swing_target(t)
+            if have_base:
+                p_des, n_des = self.to_shadow_frame(p_des, n_des, base_pos, base_quat)
+            q_ik = self._solve_ik(q_seed, p_des, n_des, plan["w_normal"], data=self._preview_data)
+            rows[k - 1, IK_INDICES] = q_ik
+            q_seed = q_seed.copy()
+            q_seed[IK_INDICES] = q_ik  # chain: the next step's seed is this step's solution
+        return rows
 
     # -- Base-aware targeting ---------------------------------------------
     def to_shadow_frame(self, p_des: np.ndarray, n_des: np.ndarray,
@@ -851,16 +940,23 @@ class IKHitterPolicy(Policy):
 
     # -- IK ------------------------------------------------------------
     def _solve_ik(self, q29_current: np.ndarray, p_des: np.ndarray, n_des: np.ndarray,
-                  w_normal: float | None = None) -> np.ndarray:
+                  w_normal: float | None = None, data=None) -> np.ndarray:
         """Dispatcher. At collision_guard <= 0.5 (the nominal) this returns
         before any arithmetic and before the region test, so the off path is
-        _solve_ik_stock itself -- the same code, not a re-derivation."""
+        _solve_ik_stock itself -- the same code, not a re-derivation.
+
+        ``data`` is the MjData to solve on, forwarded to _solve_ik_stock
+        unchanged (default None -> self._ik_data, act()'s path); preview()
+        is the only caller that ever passes its own (self._preview_data), so
+        a forecast rollout can share this exact dispatch -- collision_guard
+        included -- without disturbing the real self._ik_data/self._plan.
+        """
         if self.collision_guard <= 0.5:
-            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal)
+            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal, data=data)
         dx, z_min, dy = GUARD_REGION
         if not (p_des[0] <= scene.ROBOT_X + dx and p_des[2] >= z_min
                 and p_des[1] >= scene.ROBOT_Y + dy):
-            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal)
+            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal, data=data)
         # Inside the region: tighten three joint limits for the duration of this
         # one solve, so the per-iteration jnt_range clip already in the loop does
         # the keep-out. Restored in `finally` -- the box is per-call, never state.
@@ -871,14 +967,14 @@ class IKHitterPolicy(Policy):
         rng[IK_JOINT_NAMES.index("waist_roll_joint"), 0] = GUARD_BOX[2]
         self._ik_jnt_range = rng
         try:
-            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal)
+            return self._solve_ik_stock(q29_current, p_des, n_des, w_normal, data=data)
         finally:
             self._ik_jnt_range = saved
 
     def _solve_ik_stock(self, q29_current: np.ndarray, p_des: np.ndarray, n_des: np.ndarray,
-                        w_normal: float | None = None) -> np.ndarray:
+                        w_normal: float | None = None, data=None) -> np.ndarray:
         w_normal = self.w_normal if w_normal is None else w_normal
-        d = self._ik_data
+        d = self._ik_data if data is None else data
         d.qpos[self._all_qpos_adr] = q29_current
         eye10 = np.eye(N_IK)
         eye6 = np.eye(6)
