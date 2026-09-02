@@ -9,14 +9,18 @@ from himrobot.rl.balance_env import box_excursion_sq
 from himrobot.sim import scene
 
 
-def _mask(model: mujoco.MjModel, name: str) -> tuple[int, int]:
-    g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
-    return int(model.geom_contype[g]), int(model.geom_conaffinity[g])
+def _gid(model: mujoco.MjModel, ref: str | int) -> int:
+    if isinstance(ref, int):
+        return ref
+    g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, ref)
+    assert g >= 0, ref
+    return g
 
 
-def _collides(model: mujoco.MjModel, a: str, b: str) -> bool:
-    ta, aa = _mask(model, a)
-    tb, ab = _mask(model, b)
+def _collides(model: mujoco.MjModel, a: str | int, b: str | int) -> bool:
+    ga, gb = _gid(model, a), _gid(model, b)
+    ta, aa = int(model.geom_contype[ga]), int(model.geom_conaffinity[ga])
+    tb, ab = int(model.geom_contype[gb]), int(model.geom_conaffinity[gb])
     return bool((ta & ab) or (tb & aa))
 
 
@@ -35,19 +39,22 @@ def test_phase_through_keeps_ball_and_paddle_contacts_and_drops_robot_table():
     # a robot collision geom vs the table / net: no; vs the floor: yes
     pelvis = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
     robot_geoms = [i for i in range(m.ngeom) if m.geom_bodyid[i] == pelvis and m.geom_contype[i]]
-    assert robot_geoms
-    name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, robot_geoms[0])
-    assert not _collides(m, name, "table_top")
-    assert not _collides(m, name, "net")
-    assert _collides(m, name, "floor")
-    assert _collides(m, name, "ball")
+    assert robot_geoms  # the G1's collision geoms are unnamed: use ids
+    g = robot_geoms[0]
+    assert not _collides(m, g, "table_top")
+    assert not _collides(m, g, "net")
+    assert _collides(m, g, "floor")
+    assert _collides(m, g, "ball")
 
 
 def test_env_reads_the_param():
     env = scene.TableTennisEnv(seed=0, params={"robot_table_collision": False}, fixed_base=False)
-    assert not _collides(env.model, "pelvis_contour_link", "table_top") if mujoco.mj_name2id(
-        env.model, mujoco.mjtObj.mjOBJ_GEOM, "pelvis_contour_link") >= 0 else True
+    assert (int(env.model.geom_contype[_gid(env.model, "table_top")]),
+            int(env.model.geom_conaffinity[_gid(env.model, "table_top")])) == (2, 2)
     assert _collides(env.model, "ball", "table_top")
+    default = scene.TableTennisEnv(seed=0, params={}, fixed_base=False)
+    assert (int(default.model.geom_contype[_gid(default.model, "table_top")]),
+            int(default.model.geom_conaffinity[_gid(default.model, "table_top")])) == (1, 1)
 
 
 def test_box_excursion_is_zero_inside_and_quadratic_outside():
