@@ -51,9 +51,13 @@ teach the vocabulary as you go — never to wait for him to specify a technique.
 
 ## Engineering conventions
 
-- Baseline before change; before/after on the same seeds; results in `work/tt/rl/<run>/RESULT.md` and the
-  scoreboard in `docs/PROJECT_KNOWLEDGE.md`.
-- New knobs default to current behaviour; parity tests pin the nominal hitter and old checkpoints bit-for-bit.
+- Baseline before change; before/after on the same seeds; results in `work/tt/rl/<run>/RESULT.md` (local) and
+  copied to `results/<run>/RESULT.md` (versioned, checked in) once a run is scored; the scoreboard in
+  `docs/PROJECT_KNOWLEDGE.md` and `results/SCOREBOARD.md`.
+- New knobs default to current behaviour; parity tests (`tests/`) pin the nominal hitter and old checkpoints
+  bit-for-bit.
+- `tt_sim.*` / `him_adapter.*` remain as compatibility shims over `himrobot.*` — this is the door HIM's package
+  loads through; do not remove them. Box scripts live under `tools/box/`.
 - Delegate with the weakest adequate model (haiku mechanical, sonnet ordinary, strongest for design/adversarial
   review); one verifier reads the full diff and re-runs parity before you commit. Agents never commit.
 - Commit yourself, imperative subject, no AI attribution. Clean tree before `him run`.

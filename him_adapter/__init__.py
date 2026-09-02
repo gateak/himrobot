@@ -1,3 +1,3 @@
-from .policy import BCPolicy, HoldPolicy, load_policy
-
-__all__ = ["HoldPolicy", "BCPolicy", "load_policy"]
+"""Compat door: the real code is himrobot.serve. See him_adapter/policy.py
+and him_adapter/server.py.
+"""

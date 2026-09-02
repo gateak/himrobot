@@ -10,11 +10,11 @@ All stages run on the local CPU.
 
 | stage | command | needs |
 |---|---|---|
-| convert_fbx | `sim/fbx_to_bvh.py` | Blender (headless) |
-| validate_motion | `sim/validate_motion.py` | stdlib |
-| rename_bones | `sim/rokoko_to_lafan1_bvh.py` | stdlib |
-| retarget_g1 | `sim/gmr_bvh_to_g1_headless.py --ik_config sim/ik_configs/bvh_lafan1_rokoko_to_g1.json --jobs 4` | GMR venv (`gmr_python` parameter). The repo-local IK config corrects the rotation. The upstream GMR offsets are incorrect for Rokoko/Blender bone frames. |
-| render_preview | `sim/play_g1_csv.py --video` | MuJoCo venv + `third_party/mujoco_menagerie` (`mujoco_python`) |
+| convert_fbx | `tools/mocap/fbx_to_bvh.py` | Blender (headless) |
+| validate_motion | `tools/mocap/validate_motion.py` | stdlib |
+| rename_bones | `tools/mocap/rokoko_to_lafan1_bvh.py` | stdlib |
+| retarget_g1 | `tools/mocap/gmr_bvh_to_g1_headless.py --ik_config tools/mocap/ik_configs/bvh_lafan1_rokoko_to_g1.json --jobs 4` | GMR venv (`gmr_python` parameter). The repo-local IK config corrects the rotation. The upstream GMR offsets are incorrect for Rokoko/Blender bone frames. |
+| render_preview | `tools/mocap/play_g1_csv.py --video` | MuJoCo venv + `assets/unitree_g1` (`mujoco_python`) |
 
 To run the pipeline, use this command: `him pipeline run .him/contracts/training-pipeline.json --yes --set gmr_python=... --set mujoco_python=...`
 

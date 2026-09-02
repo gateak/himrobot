@@ -107,7 +107,7 @@
         "right_wrist_pitch_joint",
         "right_wrist_yaw_joint"
       ],
-      "notes": "Joint order = MuJoCo Menagerie unitree_g1 actuator order, identical to the Unitree SDK2 G1JointIndex enum (sim/gmr_bvh_to_g1_headless.py writes the same order). UNCONFIRMED against HIM's server-side evaluator: signal names robot.joint_position / robot.desired_joint_position and the 50 Hz clock come from the HIM single-policy template; HIM's own G1 fixture (robot-unitree-g1-fixture) uses the same names at 50 Hz but is marked fixture-only with joint order not enumerated. Reconcile with HIM before deployment."
+      "notes": "Joint order = MuJoCo Menagerie unitree_g1 actuator order, identical to the Unitree SDK2 G1JointIndex enum (tools/mocap/gmr_bvh_to_g1_headless.py writes the same order). UNCONFIRMED against HIM's server-side evaluator: signal names robot.joint_position / robot.desired_joint_position and the 50 Hz clock come from the HIM single-policy template; HIM's own G1 fixture (robot-unitree-g1-fixture) uses the same names at 50 Hz but is marked fixture-only with joint order not enumerated. Reconcile with HIM before deployment."
     }
   }
 }

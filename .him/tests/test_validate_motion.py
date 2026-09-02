@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "sim" / "validate_motion.py"
+SCRIPT = ROOT / "tools" / "mocap" / "validate_motion.py"
 
 HEADER = """HIERARCHY
 ROOT Hips

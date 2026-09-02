@@ -1,3 +1,3 @@
-"""tt_sim.rl: RL training subpackage (vectorized env + PPO) for the G1
-table-tennis task. See tt_sim/rl/env.py and tt_sim/rl/ppo.py.
+"""Compat door: real package so tt_sim.rl.ppo/param_train/eval_seeds/balance_train
+(real thin files, not aliases) can be imported. See tt_sim/__init__.py.
 """

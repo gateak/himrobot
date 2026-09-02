@@ -23,8 +23,9 @@ him_adapter/     Deployment wrapper HIM runs: stdio policy server.
                  HoldPolicy (safe fallback) + BCPolicy (loads a trained checkpoint).
 .him/            HIM overlay: manifest, runtime contract (bound to the G1's 29 joints, Menagerie/SDK order),
                  fixtures, smoke test, package lock.
-training/        PyTorch behavior-cloning scaffold (config, model, dataset, train).
-sim/             Local MuJoCo tools (no HIM servers, un-gated):
+legacy/bc/       PyTorch behavior-cloning scaffold (config, model, dataset, train) — superseded by the
+                 parameter-residual policy, kept only because him_adapter's stdio server can still serve it.
+tools/mocap/     Local MuJoCo/CV tools (no HIM servers, un-gated), not part of the himrobot package:
                  fbx_to_bvh.py / rokoko_to_lafan1_bvh.py / gmr_bvh_to_g1_headless.py --ik_config
                                   – full-body mocap → G1 (29 DoF) retarget pipeline
                                     (ik_configs/bvh_lafan1_rokoko_to_g1.json = corrected rotation offsets)
@@ -36,7 +37,8 @@ sim/             Local MuJoCo tools (no HIM servers, un-gated):
                  view_k1.py       – watch the K1 move (GIF or --live viewer)
                  k1_model.py      – load K1 with a paddle welded to the right hand
                  retarget_imu.py  – movement retarget: real paddle IMU → K1 swing
-scripts/         fetch_assets.sh  – re-clone the vendored robot model
+tools/           fetch_assets.sh  – re-clone the vendored K1 robot model (G1 is vendored at assets/unitree_g1)
+tools/box/       box_param_sweep.sh / gpu_box_setup.sh / box_push_results.py – rented-machine scripts
 ```
 
 ## Setup
@@ -44,7 +46,7 @@ scripts/         fetch_assets.sh  – re-clone the vendored robot model
 ```bash
 python3.12 -m venv .venv           # /usr/local/bin/python3.12 on this machine
 ./.venv/bin/python -m pip install torch mujoco imageio imageio-ffmpeg numpy pytest
-./scripts/fetch_assets.sh          # K1 (booster_assets) + sparse mujoco_menagerie/unitree_g1 -> third_party/
+./tools/fetch_assets.sh            # K1 (booster_assets) -> third_party/; G1 is already vendored at assets/unitree_g1
 ```
 
 Git does not track `data/`. This folder contains symlinks to the licensed
@@ -59,19 +61,19 @@ numpy. A `bpy` wheel or a different venv is not necessary.
 ## Try it
 
 ```bash
-./scripts/fetch_assets.sh                    # fetch the K1 + G1 robot models
+./tools/fetch_assets.sh                                # fetch the K1 robot model (G1 is vendored at assets/unitree_g1)
 BLENDER=/Applications/Blender.app/Contents/MacOS/Blender
-$BLENDER -b --python sim/fbx_extract.py -- data/rokoko-motion-capture/Clip_4.fbx data/mocap_clip4.npz
-./.venv/bin/python sim/g1_retarget.py        # -> sim/g1_retarget.gif (real human swing on the G1)
-./.venv/bin/python sim/view_k1.py            # -> sim/k1_wave.gif (add --live for the interactive viewer)
-./.venv/bin/python sim/retarget_imu.py       # -> sim/k1_retarget.gif (paddle IMU orientation -> K1 arm)
-~/.local/bin/him validate                    # validate the .him package
+$BLENDER -b --python tools/mocap/fbx_extract.py -- data/rokoko-motion-capture/Clip_4.fbx data/mocap_clip4.npz
+./.venv/bin/python tools/mocap/g1_retarget.py          # -> tools/mocap/g1_retarget.gif (real human swing on the G1)
+./.venv/bin/python tools/mocap/view_k1.py              # -> tools/mocap/k1_wave.gif (add --live for the interactive viewer)
+./.venv/bin/python tools/mocap/retarget_imu.py         # -> tools/mocap/k1_retarget.gif (paddle IMU orientation -> K1 arm)
+~/.local/bin/him validate                              # validate the .him package
 
 # Full-body retarget of every Rokoko clip onto the G1, then a preview MP4 (needs Blender,
 # a GMR venv and a MuJoCo venv; see .him/commands/README.md):
 ~/.local/bin/him pipeline run .him/contracts/training-pipeline.json --yes \
   --set gmr_python=~/him-tools/gmr-venv/bin/python --set mujoco_python=~/him-tools/mujoco-venv/bin/python
-~/him-tools/mujoco-venv/bin/python sim/play_g1_csv.py work/g1/Clip_2.csv   # live viewer
+~/him-tools/mujoco-venv/bin/python tools/mocap/play_g1_csv.py work/g1/Clip_2.csv   # live viewer
 ```
 
 ## HIM Arena entrypoints
@@ -108,9 +110,9 @@ joints, in Menagerie and Unitree-SDK order (`extensions.robot.joint_order`).
 - `data/` — HIM's licensed capture data (paddle IMU, Orbbec RGB-D, Rokoko
   mocap, and the verified release tars). This data is on disk inside the
   repository folder. This repository does not redistribute the data.
-- `third_party/` — vendored Booster assets. `scripts/fetch_assets.sh` fetches
-  them again.
-- `models/`, `*.pt`, `sim/*.gif` — generated artifacts.
+- `third_party/` — vendored Booster K1 assets. `tools/fetch_assets.sh` fetches
+  them again. (The G1 is vendored as tracked files at `assets/unitree_g1/`, not gitignored.)
+- `models/`, `*.pt`, `tools/mocap/*.gif` — generated artifacts.
 
 ## Honest caveats
 
@@ -119,7 +121,7 @@ joints, in Menagerie and Unitree-SDK order (`extensions.robot.joint_order`).
   correct format before you deploy the policy.** No one knows the wire format
   that the server-side evaluator must use.
 - The retarget is kinematic. It gives only poses, not dynamics or balance. The
-  `sim/retarget_imu.py` script is a previous version. It uses only paddle
+  `tools/mocap/retarget_imu.py` script is a previous version. It uses only paddle
   orientation, and it is not world-calibrated.
 - HIM recorded the three capture streams on different clocks. The team aligned
   the IMU, Rokoko, and Orbbec streams for all eight Orbbec sessions on disk

@@ -1,12 +1,12 @@
 {
   "schema_version": "1.0.0",
   "pipeline_id": "rokoko-to-g1-motion-tracking-v1",
-  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) with the repo-local IK config sim/ik_configs/bvh_lafan1_rokoko_to_g1.json (rotation offsets re-derived for Rokoko/Blender identity rest frames; the upstream GMR bvh_lafan1_to_g1.json offsets assume LAFAN1 rest-bone frames and gave 50-69 cm mean wrist error on these clips vs 10-12 cm with this config, see docs/PROJECT_KNOWLEDGE.md section 4c) -> MuJoCo preview video. Every stage is local CPU code in this repository (sim/). Tracking-policy training is NOT configured (needs an NVIDIA runner). render_preview also declares the per-clip retargeted CSV (retarget_g1's ${work_dir}/g1/${preview_clip}.csv) as an input so the contract's declared dependencies match what the command actually reads, not only the joint-order file.",
+  "description": "Rokoko Studio FBX paddle-swing captures -> BVH -> LAFAN1 bone names -> GMR full-body retarget onto the Unitree G1 (29 DoF) with the repo-local IK config tools/mocap/ik_configs/bvh_lafan1_rokoko_to_g1.json (rotation offsets re-derived for Rokoko/Blender identity rest frames; the upstream GMR bvh_lafan1_to_g1.json offsets assume LAFAN1 rest-bone frames and gave 50-69 cm mean wrist error on these clips vs 10-12 cm with this config, see docs/PROJECT_KNOWLEDGE.md section 4c) -> MuJoCo preview video. Every stage is local CPU code in this repository (tools/mocap/). Tracking-policy training is NOT configured (needs an NVIDIA runner). render_preview also declares the per-clip retargeted CSV (retarget_g1's ${work_dir}/g1/${preview_clip}.csv) as an input so the contract's declared dependencies match what the command actually reads, not only the joint-order file.",
   "parameters": {
     "python": "python3",
     "gmr_python": "/Users/akbar/him-tools/gmr-venv/bin/python",
     "mujoco_python": "/Users/akbar/him-tools/mujoco-venv/bin/python",
-    "g1_scene": "third_party/mujoco_menagerie/unitree_g1/scene.xml",
+    "g1_scene": "assets/unitree_g1/scene.xml",
     "fbx_dir": "data/rokoko-motion-capture",
     "work_dir": "work",
     "motion_fps": 30,
@@ -22,7 +22,7 @@
         "mode": "local",
         "command": [
           "${python}",
-          "sim/fbx_to_bvh.py",
+          "tools/mocap/fbx_to_bvh.py",
           "--input",
           "${fbx_dir}",
           "--output",
@@ -70,7 +70,7 @@
         "mode": "local",
         "command": [
           "${python}",
-          "sim/validate_motion.py",
+          "tools/mocap/validate_motion.py",
           "--input",
           "${work_dir}/bvh",
           "--output",
@@ -129,7 +129,7 @@
         "mode": "local",
         "command": [
           "${python}",
-          "sim/rokoko_to_lafan1_bvh.py",
+          "tools/mocap/rokoko_to_lafan1_bvh.py",
           "${work_dir}/bvh",
           "${work_dir}/bvh_lafan1"
         ],
@@ -183,7 +183,7 @@
         "mode": "local",
         "command": [
           "${gmr_python}",
-          "sim/gmr_bvh_to_g1_headless.py",
+          "tools/mocap/gmr_bvh_to_g1_headless.py",
           "--bvh_dir",
           "${work_dir}/bvh_lafan1",
           "--out_dir",
@@ -193,7 +193,7 @@
           "--fps",
           "${motion_fps}",
           "--ik_config",
-          "sim/ik_configs/bvh_lafan1_rokoko_to_g1.json",
+          "tools/mocap/ik_configs/bvh_lafan1_rokoko_to_g1.json",
           "--jobs",
           "4"
         ],
@@ -218,7 +218,7 @@
         {
           "name": "ik_config",
           "role": "ik_config",
-          "uri": "sim/ik_configs/bvh_lafan1_rokoko_to_g1.json",
+          "uri": "tools/mocap/ik_configs/bvh_lafan1_rokoko_to_g1.json",
           "format": "json",
           "optional": false
         }
@@ -272,7 +272,7 @@
         "mode": "local",
         "command": [
           "${mujoco_python}",
-          "sim/play_g1_csv.py",
+          "tools/mocap/play_g1_csv.py",
           "${preview_clip_csv}",
           "--joint-names",
           "${g1_joint_order}",
@@ -362,6 +362,6 @@
       ],
       "note": "Absolute defaults for this machine (~/him-tools/{gmr-venv,mujoco-venv}). Override on another machine with `him pipeline run ... --set gmr_python=/path/to/venv/bin/python --set mujoco_python=/path/to/venv/bin/python`."
     },
-    "setup": "scripts/fetch_assets.sh for the G1 model; data/rokoko-motion-capture from rokoko-fbx.tar; gmr_python = a venv with github.com/YanjieZe/GMR installed (pip install -e), mujoco_python = a venv with mujoco+imageio."
+    "setup": "tools/fetch_assets.sh for the K1 model (the G1 MuJoCo model is vendored at assets/unitree_g1, no fetch needed); data/rokoko-motion-capture from rokoko-fbx.tar; gmr_python = a venv with github.com/YanjieZe/GMR installed (pip install -e), mujoco_python = a venv with mujoco+imageio."
   }
 }

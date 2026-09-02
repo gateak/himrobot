@@ -1,35 +1,16 @@
-"""tt_sim.evaluate at the competition stance: pelvis welded 0.10 m toward -y.
+"""Compat door: ``python -m tt_sim.evaluate_stance`` -- see himrobot.eval.evaluate_stance.
 
-    python -m tt_sim.evaluate_stance [every tt_sim.evaluate argument]
-
-scene.ROBOT_Y is read from TT_ROBOT_Y once, at import, so a plain flag cannot
-change it after ``python -m tt_sim.evaluate`` has started; this wrapper sets
-the environment BEFORE importing anything that imports tt_sim.scene, then
-defers entirely to tt_sim.evaluate. Two defaults, both overridable by
-pre-setting the variable in the environment:
-
-  TT_ROBOT_Y   -0.10   the stance measured best on the serve distribution
-                       (work/tt/design/hitter_v3_reach.md section 2.1: shipped
-                       policy 73.5 % -> 77.8 % legal with no retraining)
-  TT_PARAM_NPZ assets/policies/param_residual_v3_s0final.npz
-                       the placement-trained v3 policy (77.0 % legal, 49.5 %
-                       target hits, 0.28 m landing error on seeds 11/2000/4000
-                       at this stance; work/tt/rl/v3_stance/RESULT.md)
-
-The default-stance ``tt_sim.evaluate`` and every welded-scene parity fixture
-are untouched by this module's existence.
+Importing himrobot.eval.evaluate_stance itself sets TT_ROBOT_Y/TT_PARAM_NPZ
+before it imports himrobot.eval.evaluate (which imports himrobot.sim.scene),
+so that ordering is already correct by the time this shim's own import line
+runs -- nothing to duplicate here.
 """
 from __future__ import annotations
 
-import os
 import sys
 
-os.environ.setdefault("TT_ROBOT_Y", "-0.10")
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ.setdefault("TT_PARAM_NPZ",
-                      os.path.join(_REPO, "assets", "policies", "param_residual_v3_s0final.npz"))
-
-from tt_sim.evaluate import main  # noqa: E402  (env vars must precede the scene import)
+from himrobot.eval.evaluate_stance import *  # noqa: F401,F403
+from himrobot.eval.evaluate_stance import main
 
 if __name__ == "__main__":
     main(sys.argv[1:])

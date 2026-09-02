@@ -2,7 +2,7 @@
 
 > Humanoid table-tennis policy for HIM Arena on the Unitree G1 (29 DoF): human capture (Rokoko mocap, paddle IMU, Orbbec RGB-D) → retargeted robot motion, ball tracks, and stream alignment → a HIM package with a stdio policy server → (next) an RL controller trained with PACE on Isaac Lab.
 
-Everything HIM runs lives in `.him/`; native code lives in `sim/`, `training/`, `him_adapter/`, `scripts/`. Capture data is under `data/` (gitignored, real files, no symlinks); derived outputs under `work/` (gitignored). `docs/PROJECT_KNOWLEDGE.md` is the source of truth for decisions, numbers, and open questions.
+Everything HIM runs lives in `.him/`; native code lives in `himrobot/`, `him_adapter/`, `tools/mocap/` (mocap/retarget/perception, not part of the package), `legacy/bc/` (superseded BC scaffold), and `tools/` (box + asset scripts). Capture data is under `data/` (gitignored, real files, no symlinks); derived outputs under `work/` (gitignored). `docs/PROJECT_KNOWLEDGE.md` is the source of truth for decisions, numbers, and open questions.
 
 ## Start
 - [README](README.md): What the project is, the three tracks (perception, movement, control), setup on macOS, and the commands to see the robot move.
@@ -17,13 +17,13 @@ Everything HIM runs lives in `.him/`; native code lives in `sim/`, `training/`, 
 
 ## Code
 - [Policy server](him_adapter/server.py): Stdio JSON policy server HIM executes; `HoldPolicy` fallback, `BCPolicy` when a checkpoint is present.
-- [Retargeting pipeline](sim/gmr_bvh_to_g1_headless.py): Rokoko BVH → G1 29-DoF CSV via GMR with the repo-local IK config `sim/ik_configs/bvh_lafan1_rokoko_to_g1.json`.
-- [Retarget fidelity report](sim/retarget_report.py): Wrist error, joint-limit saturation, foot penetration for a retargeted clip.
-- [Playback and composite](sim/play_g1_csv.py): Play a retargeted clip in MuJoCo or render MP4; `sim/composite_g1_video.py` overlays the time-aligned G1 and the detected ball on the real footage.
-- [Perception](sim/ball_detect.py): Orange-ball detection on Orbbec colour frames; `sim/ball_3d.py` attaches aligned depth; `sim/aruco_scan.py` reads the table's ArUco corners.
-- [Stream alignment](sim/align_streams.py): Pairs IMU episodes, Orbbec sessions, and Rokoko clips; cross-correlates paddle gyro with hand speed; writes `work/alignment/session-map.json`.
-- [Training scaffold](training/README.md): PyTorch next-pose behaviour cloning on the retargeted G1 motion (a motion prior, not a controller), checkpoint format, deployment note.
-- [GPU box bootstrap](scripts/gpu_box_setup.sh): Idempotent Ubuntu 22.04 setup pinned to PACE's Isaac Sim 4.5.0 / Isaac Lab 2.1.0; `scripts/make_refs_tarball.sh` packs the reference data to upload.
+- [Retargeting pipeline](tools/mocap/gmr_bvh_to_g1_headless.py): Rokoko BVH → G1 29-DoF CSV via GMR with the repo-local IK config `tools/mocap/ik_configs/bvh_lafan1_rokoko_to_g1.json`.
+- [Retarget fidelity report](tools/mocap/retarget_report.py): Wrist error, joint-limit saturation, foot penetration for a retargeted clip.
+- [Playback and composite](tools/mocap/play_g1_csv.py): Play a retargeted clip in MuJoCo or render MP4; `tools/mocap/composite_g1_video.py` overlays the time-aligned G1 and the detected ball on the real footage.
+- [Perception](tools/mocap/ball_detect.py): Orange-ball detection on Orbbec colour frames; `tools/mocap/ball_3d.py` attaches aligned depth; `tools/mocap/aruco_scan.py` reads the table's ArUco corners.
+- [Stream alignment](tools/mocap/align_streams.py): Pairs IMU episodes, Orbbec sessions, and Rokoko clips; cross-correlates paddle gyro with hand speed; writes `work/alignment/session-map.json`.
+- [Training scaffold](legacy/bc/README.md): PyTorch next-pose behaviour cloning on the retargeted G1 motion (a motion prior, not a controller), checkpoint format, deployment note — superseded, kept for `him_adapter`'s checkpoint fallback.
+- [GPU box bootstrap](tools/box/gpu_box_setup.sh): Idempotent Ubuntu 22.04 setup pinned to PACE's Isaac Sim 4.5.0 / Isaac Lab 2.1.0; `tools/make_refs_tarball.sh` packs the reference data to upload.
 
 ## Research
 - [Humanoid table-tennis survey](docs/research/humanoid-table-tennis-survey.md): Verified open-source landscape (HITTER, BeyondMimic, PACE, HOPE, SMASH, DeepMind) and the recommended build order.
