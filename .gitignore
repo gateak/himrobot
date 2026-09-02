@@ -22,3 +22,4 @@ work/
 !tt_sim/tests/data/
 !tt_sim/tests/data/*.npz
 MUJOCO_LOG.TXT
+.venv
