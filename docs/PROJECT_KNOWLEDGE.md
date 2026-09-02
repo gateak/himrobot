@@ -134,8 +134,17 @@ block, the v3 expert unchanged on waist+arm, zero-init head so step 0 == baselin
 torch-free runtime `himrobot/policies/balance_np.py`) trained 3 seeds × 4.6 h on the Mac scores **52.3 / 59.2 /
 62.7 % legal** with contacts 62 % → 80–85 % — but s2 (62.7 %) falls **25.5 %**, more than the baseline, while s0
 (52.3 %) falls 11.8 %: selection by legal rate with a fall penalty equal to the legal bonus buys returns with
-falls. v1.1: fall penalty ≥ 30, selection by legal × stand, warm start from s2, per-trial fall timing.
-`results/balance_v1/RESULT.md`, design `docs/design/balance_v1.md`.
+falls. `results/balance_v1/RESULT.md`, design `docs/design/balance_v1.md`.
+**Correction (2026-09-02, Akbar spotted it on video): every free-base "stand" number above is table-supported.**
+`fell` only fires below `FALL_PELVIS_Z`, and the robot topples forward onto the table, which holds it up. With
+the body made intangible to the table and net (`params.robot_table_collision=false`, new, default true; ball and
+paddle still collide) the same 40 serves (seed 11) give: no balance 52.5 % legal / **32/40 falls**; v1 s2 55 % /
+**32/40 falls** (13/40 with the table solid). The honest no-balance stand rate on the 40-serve selection set is
+**27.5 %** (77.5 % with the crutch). Balance v1 changed nothing about falling. v1.1 (fall penalty 30, legal × stand
+selection, solid table) was stopped after 1 h for that reason. **v1.2 (running, 4 × ~4.5 h):** phase-through scene,
+fall penalty 30, legal × stand selection, stay-in-box pelvis term (`--pos-penalty 2`, box ±0.15 × ±0.30 m, no pull
+to a point — "stay in a general place, free to shuffle sideways"), leg authority 0.15 (bracing) vs 0.40 (weight
+shift), fresh vs warm-started from s2.
 
 **Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
 settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene
