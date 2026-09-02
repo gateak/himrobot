@@ -162,7 +162,9 @@ class VecTTBalance(VecTT):
         self.expert_npz = expert_npz
         self.tilt_penalty = float(tilt_penalty)
         self.alive_bonus = float(alive_bonus)
-        self.fall_penalty = float(fall_penalty)
+        # fall_penalty is charged by VecTT._reward_and_done (passed through to
+        # super().__init__ below, which stores it as self.fall_penalty); this
+        # class only ends the episode on the step the fall latches.
         # Leg authority (rad). v1 = 0.15: bracing only. Larger values let the
         # policy shift its weight and shuffle -- needed for "stay in a general
         # place", priced by the box term below.
@@ -192,7 +194,8 @@ class VecTTBalance(VecTT):
             super().__init__(n_envs=n_envs, seed=seed, params=params,
                               obs_delay_steps=obs_delay_steps, randomize=randomize,
                               vel_penalty=vel_penalty, legal_bonus=legal_bonus,
-                              obs_noise=obs_noise, joint_noise=joint_noise)
+                              obs_noise=obs_noise, joint_noise=joint_noise,
+                              fall_penalty=fall_penalty)
         finally:
             del self._reset_one  # restore the class-level (widening) override below
 
@@ -263,8 +266,7 @@ class VecTTBalance(VecTT):
                 reward -= self.pos_penalty * box_excursion_sq(obs["base.position"], self.box_x, self.box_y)
 
             if events.get("fell") and not self._fell_latched[i]:
-                reward -= self.fall_penalty
-                done = True
+                done = True  # the penalty itself was charged in _reward_and_done above
                 self._fell_latched[i] = True
 
             self._ep_len[i] += 1

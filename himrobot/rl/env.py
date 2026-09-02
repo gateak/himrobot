@@ -143,7 +143,8 @@ class VecTT:
                  vel_penalty: float = 0.0005, legal_bonus: float = 5.0,
                  obs_noise: float = 0.0, joint_noise: float = 0.0,
                  aim_bonus: float = 3.0, aim_sigma: float = 0.5,
-                 target_hit_bonus: float = 0.0, depth_bonus: float = 0.0):
+                 target_hit_bonus: float = 0.0, depth_bonus: float = 0.0,
+                 fall_penalty: float = 0.0):
         assert n_envs >= 1
         assert obs_delay_steps >= 0
         assert obs_noise >= 0.0 and joint_noise >= 0.0
@@ -185,10 +186,15 @@ class VecTT:
         # gradient points at swing_speed_scale, the one knob with measured
         # authority over the bias (work/tt/design/hitter_v3_reach.md 2.3).
         self.depth_bonus = float(depth_bonus)
+        # Free base only (params["free_base"]): one-off penalty the step events["fell"] first latches.
+        # Default 0.0 = today's reward bit for bit; VecTTBalance prices falls itself and leaves this at 0.
+        self.fall_penalty = float(fall_penalty)
         self.obs_dim = obs_dim(intercept_features=self.intercept_features)
         self.act_dim = ACT_DIM
 
-        self.envs = [TableTennisEnv(seed=seed + i, params=self.params) for i in range(n_envs)]
+        self.envs = [TableTennisEnv(seed=seed + i, params=self.params,
+                                    fixed_base=not bool(self.params.get("free_base", False)))
+                     for i in range(n_envs)]
         # Fixed-serve rngs used only when randomize=False, so a "no
         # randomization" env still resets to a reproducible (but non-random
         # across calls) serve each episode -- useful for debugging/tests.
@@ -205,6 +211,7 @@ class VecTT:
         self._own_bounce_count = np.zeros(n_envs, dtype=np.int64)
         self._prev_landing: list[tuple | None] = [None] * n_envs
         self._intercept_bonus_latched = np.zeros(n_envs, dtype=bool)
+        self._fell_penalized = np.zeros(n_envs, dtype=bool)
         self._obs_fifo = [deque(maxlen=obs_delay_steps + 1) for _ in range(n_envs)]
 
         self._last_obs = np.zeros((n_envs, self.obs_dim), dtype=np.float32)
@@ -230,6 +237,7 @@ class VecTT:
         self._own_bounce_count[i] = 0
         self._prev_landing[i] = None
         self._intercept_bonus_latched[i] = False
+        self._fell_penalized[i] = False
 
         flat = self._flat_obs(obs, self._prev_action[i], self._targets[i], obs["time_s"])
         self._obs_fifo[i].clear()
@@ -415,6 +423,12 @@ class VecTT:
 
         jv = np.asarray(obs["robot.joint_velocity"], dtype=np.float64)
         reward -= getattr(self, "vel_penalty", 0.0005) * float(np.sum(jv ** 2))
+
+        # getattr, like the knobs above: subclasses that skip super().__init__ see 0.0.
+        fall_w = getattr(self, "fall_penalty", 0.0)
+        if fall_w > 0.0 and events.get("fell") and not self._fell_penalized[i]:
+            reward -= fall_w
+            self._fell_penalized[i] = True
 
         failed_now = bool(events.get("net_hit")) or bool(events.get("out"))
         if failed_now and self._contact_latched[i] and not self._fail_latched[i]:

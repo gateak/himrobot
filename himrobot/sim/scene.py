@@ -306,6 +306,10 @@ DEFAULT_PARAMS = {
     # (found 2026-09-01: balance v1 learned exactly that). Welded scene: no-op
     # in practice, kept default for bit-exact parity.
     "robot_table_collision": True,
+    # False (default): the welded scene. True: the same as TableTennisEnv(fixed_base=False), so trainers
+    # that only take --params (VecTT, param_train) can run on the free base. TableTennisEnv's explicit
+    # fixed_base argument still wins when a caller passes it (evaluate --free-base).
+    "free_base": False,
 }
 
 
