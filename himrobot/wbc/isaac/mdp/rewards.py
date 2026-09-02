@@ -52,6 +52,7 @@ REWARD_TERMS: list[RewardSpec] = [
     RewardSpec("joint_limit", -10.0, "joint-limit violation"),
     RewardSpec("waist_residual", -0.5, "|waist residual|^2"),
     RewardSpec("undesired_contact", -0.1, "any body but the two feet touching the ground (>1 N)"),
+    RewardSpec("termination", -10.0, "charged once on the step a non-time-out termination fires (sec 3.3)"),
 ]
 REWARD_TERM_NAMES = [t.name for t in REWARD_TERMS]
 REWARD_WEIGHTS = {t.name: t.weight for t in REWARD_TERMS}

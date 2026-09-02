@@ -244,6 +244,9 @@ _GLOBAL_SWING_SPEED = float(os.environ.get("TT_SWING_SPEED", "1.0"))
 # bounds; absent (default) leaves the model's own limits -- bit-exact today.
 _WAIST_LIMIT = (tuple(float(v) for v in os.environ["TT_WAIST_LIMIT"].split(","))
                 if os.environ.get("TT_WAIST_LIMIT") else None)
+# TT_RETURN_BLEND=<seconds> eases the post-swing return to the ready pose over
+# that long instead of a one-step snap; 0 (default) = today, bit-exact.
+_RETURN_BLEND = float(os.environ.get("TT_RETURN_BLEND", "0"))
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +632,8 @@ class IKHitterPolicy(Policy):
         assert self._paddle_body_id >= 0 and self._blade_gid >= 0
 
         self._ready_ik_pose = scene.STAND_POSE[IK_INDICES].copy()
+        self._last_ik_action = None
+        self._last_ik_time = 0.0
         self._jacp_a = np.zeros((3, self._ik_model.nv))
         self._jacp_b = np.zeros((3, self._ik_model.nv))
 
@@ -673,6 +678,8 @@ class IKHitterPolicy(Policy):
         self._target_depth = params["target_depth"]
         self._risk = float(params["risk_preference"])
         self._plan = None
+        self._last_ik_action = None
+        self._last_ik_time = 0.0
 
     def act(self, obs: dict) -> np.ndarray:
         t_now = float(obs["time_s"])
@@ -684,10 +691,20 @@ class IKHitterPolicy(Policy):
 
         action = scene.STAND_POSE.copy()
         plan = self._plan
-        if plan is None:
-            return action
-        window_start = plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]
-        if not window_start <= t_now <= plan["t_contact"] + plan["t_follow"]:
+        in_window = False
+        if plan is not None:
+            window_start = plan["t_contact"] - plan["speed_buffer"] - plan["t_pre"]
+            window_end = plan["t_contact"] + plan["t_follow"]
+            in_window = window_start <= t_now <= window_end
+        if not in_window:
+            if _RETURN_BLEND > 0.0 and self._last_ik_action is not None:
+                # Free-base diagnostic (TT_RETURN_BLEND, seconds): ease the
+                # arm/waist back to the ready pose instead of snapping the
+                # target there in one control step at full stiffness -- the
+                # measured late (t ~ 2.8 s) post-return topples start here.
+                # _last_ik_time is the last step inside a swing window.
+                s_blend = min(1.0, max(0.0, (t_now - self._last_ik_time) / _RETURN_BLEND))
+                action[IK_INDICES] = (1.0 - s_blend) * self._last_ik_action + s_blend * action[IK_INDICES]
             return action
 
         p_des, n_des = self._swing_target(t_now)
@@ -697,6 +714,8 @@ class IKHitterPolicy(Policy):
             p_des, n_des = self.to_shadow_frame(
                 p_des, n_des, obs["base.position"], obs["base.orientation"])
         action[IK_INDICES] = self._solve_ik(q29, p_des, n_des, plan["w_normal"])
+        self._last_ik_action = action[IK_INDICES].copy()
+        self._last_ik_time = t_now
         return action
 
     # -- WBC accessors (see docs/design/whole_body_v1.md sec 5.2) ---------

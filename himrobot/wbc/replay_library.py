@@ -86,7 +86,7 @@ from himrobot.wbc import obs as wbc_obs
 from himrobot.wbc.action import joint_target_wbc
 
 # himrobot.wbc.export_npz (which owns numpy_forward, the shared MLP forward)
-# imports torch at module level; it is imported lazily inside WBCCheckpoint
+# imports torch lazily itself; it is still imported inside WBCCheckpoint only
 # so the a=0 open-loop path -- the MuJoCo half of Gate 0 -- stays torch-free
 # like the rest of the deploy runtime (himrobot.policies.wbc_np).
 
@@ -202,20 +202,40 @@ class WBCCheckpoint:
     --leg-default flag, which only governs the a=0 (no checkpoint) path."""
 
     def __init__(self, path: str):
+        from himrobot.wbc.export_npz import NORM_EPS, numpy_forward  # see top of module
+
+        self._forward = numpy_forward
+        self._norm_eps = NORM_EPS  # rsl_rl EmpiricalNormalization eps; overridden from the npz below
         z = np.load(path, allow_pickle=False)
         self.layers = [(z[f"W{i}"].astype(np.float64), z[f"b{i}"].astype(np.float64)) for i in range(4)]
         assert self.layers[0][0].shape[1] == WBC_OBS_DIM, \
             f"{path}: W0 expects {WBC_OBS_DIM}-dim input, got {self.layers[0][0].shape[1]}"
         assert self.layers[-1][0].shape[0] == WBC_ACT_DIM, \
             f"{path}: final layer must output {WBC_ACT_DIM}, got {self.layers[-1][0].shape[0]}"
+        # Metadata guards (present in every export_npz output; optional here
+        # so hand-built parity checkpoints still load): a checkpoint trained
+        # against another observation layout or action scaling must not be
+        # silently replayed with this one's formulas.
+        if "obs_version" in z.files:
+            assert int(z["obs_version"]) == wbc_obs.OBS_VERSION, \
+                f"{path}: obs_version {int(z['obs_version'])} != {wbc_obs.OBS_VERSION}"
+        for key, expected in (("leg_scale", wbc_obs.LEG_SCALE), ("waist_scale", wbc_obs.WAIST_SCALE)):
+            if key in z.files:
+                assert float(z[key]) == expected, f"{path}: {key} {float(z[key])} != {expected}"
         self.rms_mean = z["rms_mean"].astype(np.float64) if "rms_mean" in z.files else np.zeros(WBC_OBS_DIM)
         self.rms_var = z["rms_var"].astype(np.float64) if "rms_var" in z.files else np.ones(WBC_OBS_DIM)
+        if "norm_eps" in z.files:
+            self._norm_eps = float(z["norm_eps"])  # 0.0 for an identity-normalized export
         self.leg_default = z["leg_default"].astype(np.float64) if "leg_default" in z.files \
             else scene.STAND_POSE[:12].copy()
         self.jnt_range = z["jnt_range"].astype(np.float64) if "jnt_range" in z.files else None
 
     def act(self, obs141: np.ndarray) -> np.ndarray:
-        return np.clip(numpy_forward(self.layers, self.rms_mean, self.rms_var, obs141), -1.0, 1.0)
+        """The RAW actor output, as NumpyWBCPolicy.act keeps it for the
+        prev-action slot (the Isaac side observes the unclipped
+        action_manager.action); action.joint_target_wbc clips to [-1, 1]
+        itself before scaling."""
+        return self._forward(self.layers, self.rms_mean, self.rms_var, obs141, self._norm_eps)
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +360,7 @@ def main(argv: list[str] | None = None) -> dict:
     result = run(args.lib, args.mode, args.leg_default, args.wbc_npz, args.max_rows, args.seed)
     result["elapsed_s"] = time.time() - start
     result["tt_robot_y"] = os.environ.get("TT_ROBOT_Y")
+    result["robot_y"] = float(scene.ROBOT_Y)  # the stance actually in effect (0.0 when the env var is unset)
 
     out_path = args.out
     if out_path is None:

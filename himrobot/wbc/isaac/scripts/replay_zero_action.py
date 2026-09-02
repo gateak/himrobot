@@ -3,7 +3,8 @@
 held-out ``swing_lib_eval.npz`` rows (WB1, 600 rows) plus a batch of idle
 rows (u == STAND_POSE throughout) open-loop with ``a = 0`` in Isaac, and
 report the same falls/pelvis/tilt schema as the MuJoCo half
-(``himrobot/wbc/replay_library.py``, WB4, not yet landed) so
+(``himrobot/wbc/replay_library.py --mode ball-parked``: no ball reaches the
+robot there either, so the two halves simulate the same thing) so
 ``tools/box/wbc_box_run.sh`` can diff the two. a = 0 with
 ``leg_default = STAND_POSE[:12]`` is the parity anchor
 (docs/design/whole_body_v1.md sec 3.2): STAND_POSE rows must stand the full
@@ -48,23 +49,47 @@ def main(argv: list[str] | None = None) -> int:
     cfg = env_cfg.HimrobotWBCG1EnvCfg()
     cfg.scene.num_envs = args.num_envs + args.n_idle
     cfg.commands.swing.library_paths = {"eval": args.swing_lib}
+    # Exact nominal resets, no pushes/material/mass/gain jitter: the MuJoCo
+    # half (himrobot.wbc.replay_library) resets to the exact straight-leg pose.
+    env_cfg.disable_randomization(cfg)
+    # MuJoCo's replay has no tilt cut-off -- it counts a fall only once the
+    # pelvis drops below scene.FALL_PELVIS_Z. With the 0.7 rad "tilted"
+    # termination in place Isaac would reset a toppling robot before that
+    # happens and undercount; drop it for the replay so both halves count
+    # the same physical event.
+    cfg.terminations.tilted = None
 
     env = env_cfg.ManagerBasedRLEnv(cfg=cfg)
     env.reset()
 
     swing = env.command_manager.get_term("swing")
-    # First num_envs rows play the eval library; the last n_idle envs are
-    # pinned to the row's own final (post-swing/idle) frame throughout, the
-    # env-cfg convention for an "idle" row (see SwingLibraryCommand._resample_command).
+    n_lib_rows = swing.bank.n_rows
+    if args.num_envs > n_lib_rows:
+        raise SystemExit(f"--num_envs {args.num_envs} > {n_lib_rows} rows in {args.swing_lib}")
+    # env.reset() drew random rows per the curriculum; Gate 0 wants row i in
+    # env i, from step 0, and the trailing n_idle envs flagged idle (STAND_POSE
+    # on every step -- SwingLibraryCommand's idle mask).
     idle_start = args.num_envs
-    swing.time_idx[idle_start:] = swing.bank.combined.n_steps - 1
+    swing.row_idx[:idle_start] = torch.arange(idle_start, device=env.device)
+    swing.row_idx[idle_start:] = 0
+    swing.time_idx[:] = 0
+    swing.idle[:] = False
+    swing.idle[idle_start:] = True
 
     zero_action = torch.zeros(cfg.scene.num_envs, actions.ACTION_DIM, device=env.device)
-    pelvis_z_hist, tilt_hist, fell_any = [], [], torch.zeros(cfg.scene.num_envs, dtype=torch.bool)
+    pelvis_z_hist, tilt_hist = [], []
+    fell_any = torch.zeros(cfg.scene.num_envs, dtype=torch.bool, device=env.device)
 
     n_steps = int(cfg.episode_length_s / (cfg.sim.dt * cfg.decimation))
     for _ in range(n_steps):
         env.step(zero_action)
+        # A fallen env is auto-reset INSIDE step() (back to the nominal pose,
+        # a fresh random row), so the fall must be read off the termination
+        # manager's per-term flag, not the post-step pelvis height -- which
+        # is already the reset value. Same threshold as MuJoCo's own
+        # ``fell`` latch (scene.FALL_PELVIS_Z), so the two halves count the
+        # same event.
+        fell_any |= env.termination_manager.get_term("fell")
         robot = env.scene["robot"]
         z = robot.data.root_pos_w[:, 2]
         gravity_b = env_cfg.observations.body_frame_gravity(robot.data.root_quat_w)
@@ -79,8 +104,8 @@ def main(argv: list[str] | None = None) -> int:
     def _p90(x: torch.Tensor) -> float:
         return float(torch.quantile(x.flatten().float(), 0.90).item())
 
-    lib_fell = fell_any[:args.num_envs]
-    idle_fell = fell_any[args.num_envs:]
+    lib_fell = fell_any[:args.num_envs].cpu()
+    idle_fell = fell_any[args.num_envs:].cpu()
     result = {
         "n_rows": args.num_envs,
         "steps_per_episode": n_steps,

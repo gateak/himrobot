@@ -137,8 +137,8 @@ def default_pose(leg_default: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
     """concat(leg_default, STAND_POSE[12:]) -- torch twin of
     himrobot.wbc.obs.default_pose. ``like`` supplies the batch shape to
     broadcast a bare (12,)/(17,) leg_default/cmd_default against."""
-    cmd_default = _CMD_DEFAULT.expand_as(like[..., N_LEG:])
-    return torch.cat([leg_default.expand_as(like[..., :N_LEG]), cmd_default], dim=-1)
+    cmd_default = _CMD_DEFAULT.to(device=like.device).expand_as(like[..., N_LEG:])
+    return torch.cat([leg_default.to(device=like.device).expand_as(like[..., :N_LEG]), cmd_default], dim=-1)
 
 
 def swing_clock(t_now: torch.Tensor, t_contact: torch.Tensor, speed_buffer: torch.Tensor,
@@ -180,13 +180,14 @@ def compute_actor_obs(
     both the parity test and a real training-time noised wrapper share).
     Torch twin of himrobot.wbc.obs.flatten."""
     q_default = default_pose(leg_default, joint_pos)
-    cmd_default = _CMD_DEFAULT.expand_as(u_now[..., _CMD_SLICE_29])
+    # Module-level constants live on the CPU; the box's tensors are CUDA.
+    cmd_default = _CMD_DEFAULT.to(device=u_now.device).expand_as(u_now[..., _CMD_SLICE_29])
     clock = swing_clock(t_now, t_contact, speed_buffer, t_pre, t_follow)
     return torch.cat([
         body_frame_gravity(base_quat),
         base_ang_vel,
         body_frame_vector(base_quat, base_lin_vel_w),
-        base_pos - _BASE_NOMINAL_POS,
+        base_pos - _BASE_NOMINAL_POS.to(device=base_pos.device),
         heading_cos_sin(base_quat),
         joint_pos - q_default,
         joint_vel * 0.1,
@@ -203,7 +204,7 @@ def compute_critic_extra(u_p15: torch.Tensor, u_p25: torch.Tensor, serve_scale: 
     only [12:29] read, each minus the JOINT_ORDER[12:29] default) and the
     row's serve_scale. Isaac-training-only, no numpy counterpart (see module
     docstring)."""
-    cmd_default = _CMD_DEFAULT.expand_as(u_p15[..., _CMD_SLICE_29])
+    cmd_default = _CMD_DEFAULT.to(device=u_p15.device).expand_as(u_p15[..., _CMD_SLICE_29])
     if serve_scale.dim() < u_p15.dim() - 1:
         serve_scale = serve_scale.unsqueeze(-1)
     elif serve_scale.dim() == u_p15.dim() - 1:
@@ -238,23 +239,35 @@ def add_uniform_noise(obs: torch.Tensor, generator: torch.Generator | None = Non
 # the ``mdp`` package docstring's three-tier split. This module stays pure
 # torch (tier 1 + 2) so tests/test_wbc_mdp_torch.py can import it with no
 # isaaclab anywhere, real or stubbed.
-def actor_obs_func(env, asset_cfg=None):  # noqa: ANN001 -- env is an isaaclab ManagerBasedRLEnv
+def actor_obs_func(env, noise: bool = False):  # noqa: ANN001 -- env is an isaaclab ManagerBasedRLEnv
     """isaaclab ObsTerm entry point (registered by env_cfg.py): pulls the
     per-env state this task's scene/command manager expose and calls
-    compute_actor_obs. The exact attribute names below (env.scene["robot"],
-    env.command_manager) are isaaclab's real manager API and are unverified
-    against a live box (no Isaac session has ever run this file) -- see
-    docs/design/whole_body_v1.md sec 11 and PORT.md-style caveats elsewhere
-    in this repo for the same honesty convention."""
+    compute_actor_obs. ``noise=True`` (the policy group) adds the sec 3.1
+    uniform train-time noise via add_uniform_noise; the critic group passes
+    False and sees the clean 141 (asymmetric critic, sec 3.1).
+
+    Joint slots are re-ordered into scene.JOINT_ORDER through
+    ``swing.joint_ids`` (SwingLibraryCommand resolves them by name with
+    find_joints(..., preserve_order=True)): a USD converted from our MJCF
+    does NOT list its joints in the SDK order -- PhysX orders an
+    articulation's joints by tree traversal, so ``robot.data.joint_pos[:,
+    :12]`` is not "the legs" there. Every consumer of a 29-vector in this
+    package goes through that map. The exact attribute names below
+    (env.scene["robot"], env.command_manager) are isaaclab's real manager
+    API and are unverified against a live box (no Isaac session has ever
+    run this file) -- see docs/design/whole_body_v1.md sec 11."""
     robot = env.scene["robot"]
     swing = env.command_manager.get_term("swing")
-    return compute_actor_obs(
+    ids = swing.joint_ids
+    obs = compute_actor_obs(
         base_quat=robot.data.root_quat_w,
         base_ang_vel=robot.data.root_ang_vel_b,
         base_lin_vel_w=robot.data.root_lin_vel_w,
-        base_pos=robot.data.root_pos_w,
-        joint_pos=robot.data.joint_pos,
-        joint_vel=robot.data.joint_vel,
+        # Relative to the env's own origin (multi-env scenes tile the world);
+        # the robot spawns at BASE_NOMINAL_POS within its env (assets.py).
+        base_pos=robot.data.root_pos_w - env.scene.env_origins,
+        joint_pos=robot.data.joint_pos[:, ids],
+        joint_vel=robot.data.joint_vel[:, ids],
         leg_default=swing.leg_default,
         prev_action=env.action_manager.action,
         u_now=swing.u_now,
@@ -266,8 +279,9 @@ def actor_obs_func(env, asset_cfg=None):  # noqa: ANN001 -- env is an isaaclab M
         t_pre=swing.t_pre,
         t_follow=swing.t_follow,
     )
+    return add_uniform_noise(obs) if noise else obs
 
 
-def critic_extra_func(env, asset_cfg=None):  # noqa: ANN001
+def critic_extra_func(env):  # noqa: ANN001
     swing = env.command_manager.get_term("swing")
     return compute_critic_extra(swing.u_p15, swing.u_p25, swing.serve_scale)

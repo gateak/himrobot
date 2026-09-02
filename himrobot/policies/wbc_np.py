@@ -41,6 +41,18 @@ this reason -- so a lower-fidelity forecast here is a considered
 performance choice, not a shortcut that changes what gets swung: u(t)
 (the only thing that actually reaches the actuators unmodified, see
 himrobot.wbc.action) never passes through this code path.
+
+CONTRACT for the training side (measured, verifier of this work item, 40
+welded serves at TT_ROBOT_Y=-0.10 with preview_error.py's own in-window /
+10-IK-joint methodology): preview at PREVIEW_DLS_ITERS=6 differs from the
+hitter's default dls_iters=20 preview by 0.095 rad RMS at k=5 and 0.097 rad
+at k=10 -- about twice the 0.05 rad train/test threshold in design sec 5.3
+on its own. Any swing library that stores preview(t) instead of the true
+future (the design's fallback once preview_error.py fails its threshold --
+it does: work/wbc/preview_error.json, 0.120 / 0.180 rad) MUST record it
+with hitter.dls_iters = PREVIEW_DLS_ITERS, exactly as act() below does;
+himrobot.wbc.preview_error measures at this setting by default for the
+same reason.
 """
 from __future__ import annotations
 
@@ -53,13 +65,15 @@ from himrobot.paths import ASSETS_DIR
 from himrobot.policies.base import Policy
 from himrobot.policies.param_residual_np import NumpyParamResidualPolicy
 from himrobot.rl.balance_env import DEFAULT_EXPERT_NPZ
+from himrobot.sim import scene
 from himrobot.wbc import obs as wbc_obs
 from himrobot.wbc.action import joint_target_wbc
+from himrobot.wbc.export_npz import NORM_EPS, numpy_forward  # torch-free: export_npz imports torch lazily
 
 DEFAULT_WBC_NPZ = str(ASSETS_DIR / "policies" / "wbc_v1.npz")
 
 PREVIEW_HORIZON = 10  # IKHitterPolicy.preview(obs, PREVIEW_HORIZON) -- rows[4]/[9] are u_p5/u_p10
-PREVIEW_DLS_ITERS = 6  # see module docstring's performance note
+PREVIEW_DLS_ITERS = 6  # see module docstring: performance note AND the recorder contract
 
 
 @contextmanager
@@ -94,11 +108,27 @@ class NumpyWBCPolicy(Policy):
         self.layers = [(z[f"W{i}"].astype(np.float64), z[f"b{i}"].astype(np.float64)) for i in range(4)]
         self.rms_mean = z["rms_mean"].astype(np.float64)
         self.rms_var = z["rms_var"].astype(np.float64)
+        # rsl_rl EmpiricalNormalization's eps (see export_npz); an .npz
+        # written before the key existed can only have come from a
+        # normalized run, so rsl_rl's default is the right fallback.
+        self.norm_eps = float(z["norm_eps"]) if "norm_eps" in z.files else NORM_EPS
         self.obs_version = int(z["obs_version"])
         self.leg_default = z["leg_default"].astype(np.float64)
         self.leg_scale = float(z["leg_scale"])
         self.waist_scale = float(z["waist_scale"])
         self.jnt_range = z["jnt_range"].astype(np.float64)
+        # A checkpoint trained against another layout or action scaling must
+        # not be silently run through this one's formulas (wbc_obs.flatten and
+        # joint_target_wbc hardcode the layout and LEG_SCALE/WAIST_SCALE).
+        if self.obs_version != wbc_obs.OBS_VERSION:
+            raise ValueError(f"{path}: obs_version {self.obs_version} != {wbc_obs.OBS_VERSION}")
+        if self.leg_scale != wbc_obs.LEG_SCALE or self.waist_scale != wbc_obs.WAIST_SCALE:
+            raise ValueError(f"{path}: leg/waist scale {self.leg_scale}/{self.waist_scale} != "
+                             f"{wbc_obs.LEG_SCALE}/{wbc_obs.WAIST_SCALE}")
+        if self.layers[0][0].shape[1] != wbc_obs.OBS_DIM or self.layers[-1][0].shape[0] != wbc_obs.ACT_DIM:
+            raise ValueError(f"{path}: actor shape {self.layers[0][0].shape} .. {self.layers[-1][0].shape}")
+        if self.leg_default.shape != (wbc_obs.N_LEG,) or self.jnt_range.shape != (scene.NUM_JOINTS, 2):
+            raise ValueError(f"{path}: leg_default {self.leg_default.shape} / jnt_range {self.jnt_range.shape}")
         # Metadata only -- the WBC action always combines with the LIVE
         # hitter's own act() output (u_now), so expert_npz just selects
         # which hitter checkpoint this WBC was trained/is evaluated against.
@@ -112,18 +142,15 @@ class NumpyWBCPolicy(Policy):
         self._prev_action = np.zeros(wbc_obs.ACT_DIM, dtype=np.float64)
 
     def _forward(self, flat_obs: np.ndarray) -> np.ndarray:
-        # rsl_rl EmpiricalNormalization (eps 1e-8, clip +-10), then the
-        # ActorCritic actor: Linear->ELU x3, final Linear with no activation
-        # (rsl_rl's actor head outputs the action-distribution mean directly).
-        x = np.clip((flat_obs.astype(np.float64) - self.rms_mean) / np.sqrt(self.rms_var + 1e-8), -10.0, 10.0)
-        n_layers = len(self.layers)
-        for i, (w, b) in enumerate(self.layers):
-            x = x @ w.T + b
-            if i < n_layers - 1:
-                x = np.where(x > 0.0, x, np.exp(x) - 1.0)  # ELU, alpha=1
-        return x
+        # rsl_rl EmpiricalNormalization ((x - mean) / (std + eps), no clip),
+        # then the ActorCritic actor: Linear->ELU x3, final Linear with no
+        # activation (act_inference returns the mean directly) -- the one
+        # shared implementation, see himrobot.wbc.export_npz.numpy_forward.
+        return numpy_forward(self.layers, self.rms_mean, self.rms_var, flat_obs, self.norm_eps)
 
     def act(self, obs: dict) -> np.ndarray:
+        if "base.orientation" not in obs:
+            raise KeyError("NumpyWBCPolicy needs the free-base obs (base.* keys): run evaluate with --free-base")
         u_now = self.expert.act(obs)  # the hitter's real swing, full fidelity, untouched
         hitter = self.expert.hitter
         plan = hitter.plan(obs)  # idempotent here -- expert.act() already replanned this step
@@ -132,6 +159,13 @@ class NumpyWBCPolicy(Policy):
         u_p5, u_p10 = preview[4], preview[9]
 
         flat = wbc_obs.flatten(obs, self._prev_action, u_now, u_p5, u_p10, plan, self.leg_default)
-        a = np.clip(self._forward(flat), -1.0, 1.0)
-        self._prev_action = a
-        return joint_target_wbc(a, u_now, self.jnt_range, self.leg_default)
+        a_raw = self._forward(flat)
+        # The prev-action slot (wbc_obs.PREV_ACTION_SLICE) carries the RAW
+        # actor output, not the clipped one: the Isaac twin feeds
+        # env.action_manager.action -- WBCJointAction's _raw_actions, the
+        # unclipped tensor rsl_rl handed to env.step -- into the same slot
+        # (himrobot/wbc/isaac/env_cfg.py process_actions,
+        # mdp/observations.py actor_obs_func). joint_target_wbc clips to
+        # [-1, 1] itself before scaling, on both sides.
+        self._prev_action = a_raw
+        return joint_target_wbc(a_raw, u_now, self.jnt_range, self.leg_default)

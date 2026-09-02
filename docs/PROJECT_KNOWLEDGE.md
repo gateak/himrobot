@@ -159,8 +159,11 @@ falls). Even ±0.1 rad of waist still topples it (waist *motion*, not lean). Sta
 returns (57 → 72 %) but not standing; with the waist locked the crouch is worse (44 % falls). **Retrained with the waist locked on the honest free base (`results/free_v4/RESULT.md`, 2 × 74 min Mac): free_v4
 s1/best = 59.7 % legal / 18.0 % target / 0.45 m / 16.8 % falls** on 600 serves (from 45.3 / 3.5 / 0.68 / 14.8).
 Shipped as `assets/policies/param_residual_free_v4_s1best.npz` (run with `TT_WAIST_LIMIT=0,0`, free base,
-`robot_table_collision=false`). The ~17-point gap to the welded 77 % is the torso's reach; the ~17 % falls have no
-knob to fix them — both are the whole-body lane (design in progress: `docs/design/whole_body_v1.md`).
+`robot_table_collision=false`). **Then the remaining falls turned out to be the post-swing snap-back** (31/38 falls on legally returned serves,
+median 2.8 s): `TT_RETURN_BLEND=0.3` (new, default 0 = bit-exact) eases the arm back to the ready pose and gives
+**59.8 % legal / 18.0 % target / 0.45 m with 2.3 % falls** (14/600). The ~17-point gap to the welded 77 % is the
+torso's reach and the backhand side (0 % returns for serves near y ∈ [−0.4, 0)); that is the whole-body lane
+(design in progress: `docs/design/whole_body_v1.md`).
 
 **Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
 settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene

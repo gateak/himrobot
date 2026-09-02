@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import time
 
 
@@ -50,7 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     app_launcher = AppLauncher(headless=args.headless)
     simulation_app = app_launcher.app
 
-    import torch
+    import torch  # noqa: F401 -- isaaclab needs torch initialised after the app
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
     from rsl_rl.runners import OnPolicyRunner
 
     from himrobot.wbc.isaac import env_cfg, ppo_cfg
@@ -58,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = env_cfg.HimrobotWBCG1EnvCfg()
     cfg.scene.num_envs = args.num_envs
+    cfg.seed = args.seed
     if args.sim_dt is not None and args.decimation is not None:
         env_cfg.apply_sim_dt_override(cfg, args.sim_dt, args.decimation)
 
@@ -70,42 +73,83 @@ def main(argv: list[str] | None = None) -> int:
         actions.STAND_LEG_DEFAULT if args.leg_default == "stand"
         else tuple(_load_mocap_leg_default())
     )
+    # The action term's leg_default must be the same vector the observation
+    # measures joint_pos against (docs/design/whole_body_v1.md sec 3.2).
+    cfg.actions.wbc_action.leg_default = cfg.commands.swing.leg_default
 
     runner_cfg = ppo_cfg.HimrobotWBCPPORunnerCfg()
     if args.max_iterations is not None:
         runner_cfg.max_iterations = args.max_iterations
     runner_cfg.experiment_name = args.run_name
+    runner_cfg.seed = args.seed
 
-    env = env_cfg.ManagerBasedRLEnv(cfg=cfg)
     log_dir = os.path.join(args.out_dir, args.run_name)
     os.makedirs(log_dir, exist_ok=True)
-    runner = OnPolicyRunner(env, vars(runner_cfg), log_dir=log_dir, device="cuda:0")
+    env = env_cfg.ManagerBasedRLEnv(cfg=cfg)
+    _dump_params(log_dir, cfg, runner_cfg)
+    swing = env.command_manager.get_term("swing")
+    # rsl_rl talks to isaaclab only through this wrapper (get_observations()
+    # -> (policy_obs, {"observations": {"critic": ...}}), num_actions, ...);
+    # the runner takes the cfg as a plain nested dict (configclass.to_dict),
+    # not the cfg object -- it ** unpacks train_cfg["policy"]/["algorithm"].
+    env = RslRlVecEnvWrapper(env)
+    runner = OnPolicyRunner(env, runner_cfg.to_dict(), log_dir=log_dir, device=env.device)
 
     if runner_cfg.zero_init_final_actor_layer:
         zero_init_final_actor_layer(runner)
     if args.resume:
         runner.load(args.resume)
+    if args.curriculum == "default":
+        install_curriculum_hook(runner, swing)
 
+    # Wall-clock cap: rsl_rl's learn() has no such knob and calling it one
+    # iteration at a time would write a checkpoint per call, so raise
+    # KeyboardInterrupt from a SIGALRM instead -- the same path the box
+    # script's SIGINT takes, ending in final.pt.
+    if args.max_minutes:
+        def _deadline(signum, frame):  # noqa: ANN001, ARG001
+            raise KeyboardInterrupt("--max_minutes reached")
+        signal.signal(signal.SIGALRM, _deadline)
+        signal.alarm(int(args.max_minutes * 60.0))
     start = time.time()
-    deadline = start + args.max_minutes * 60.0 if args.max_minutes else None
     try:
-        if deadline is None:
-            runner.learn(num_learning_iterations=runner_cfg.max_iterations)
-        else:
-            # rsl_rl's own learn() has no wall-clock cap; tools/box/
-            # wbc_box_run.sh instead SIGINTs this process near the deadline
-            # (see its header) and this loop just makes the cap explicit
-            # for anyone running the script directly.
-            it = 0
-            while time.time() < deadline and it < runner_cfg.max_iterations:
-                runner.learn(num_learning_iterations=1)
-                it += 1
+        runner.learn(num_learning_iterations=runner_cfg.max_iterations)
     except KeyboardInterrupt:
-        pass
+        print(f"[train] interrupted after {(time.time() - start) / 60.0:.1f} min; saving final.pt")
     finally:
+        signal.alarm(0)
         runner.save(os.path.join(log_dir, "final.pt"))
         simulation_app.close()
     return 0
+
+
+def install_curriculum_hook(runner, swing) -> None:  # noqa: ANN001
+    """Advance SwingLibraryCommand.iteration once per PPO update so the
+    sec 6.1 library-mix schedule (mdp.commands.LIBRARY_MIX_SCHEDULE) actually
+    moves; rsl_rl 2.x has no per-iteration callback, so wrap alg.update
+    (called exactly once per learning iteration)."""
+    alg = runner.alg
+    original_update = alg.update
+
+    def _update(*a, **k):  # noqa: ANN001
+        swing.iteration += 1
+        return original_update(*a, **k)
+
+    alg.update = _update
+
+
+def _dump_params(log_dir: str, cfg, runner_cfg) -> None:  # noqa: ANN001
+    """params/env.yaml + params/agent.yaml, isaaclab's own train-script
+    convention (pushed by tools/box/wbc_box_run.sh's params/*.yaml glob).
+    Best effort: a serialisation failure must not stop training."""
+    try:
+        from isaaclab.utils.io import dump_yaml
+
+        os.makedirs(os.path.join(log_dir, "params"), exist_ok=True)
+        dump_yaml(os.path.join(log_dir, "params", "env.yaml"), cfg)
+        dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), runner_cfg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[train] params dump skipped: {exc!r}")
 
 
 def zero_init_final_actor_layer(runner) -> None:  # noqa: ANN001 -- runner is an rsl_rl OnPolicyRunner
@@ -115,18 +159,18 @@ def zero_init_final_actor_layer(runner) -> None:  # noqa: ANN001 -- runner is an
     the last Linear layer's weight and bias in the actor MLP (the standard
     "zero-init the policy head" trick); the critic is left alone."""
     import torch.nn as nn
-    actor = runner.alg.actor_critic.actor
+    # rsl_rl 2.x names it alg.actor_critic; later releases alg.policy.
+    actor_critic = getattr(runner.alg, "actor_critic", None) or getattr(runner.alg, "policy")
+    actor = actor_critic.actor
     last_linear = next(m for m in reversed(list(actor.modules())) if isinstance(m, nn.Linear))
     nn.init.zeros_(last_linear.weight)
     nn.init.zeros_(last_linear.bias)
 
 
 def _load_mocap_leg_default() -> "list[float]":
-    import numpy as np
+    from himrobot.wbc.export_npz import mocap_leg_default  # the same vector export.py bakes into the npz
 
-    from himrobot.paths import ASSETS_DIR
-    z = np.load(str(ASSETS_DIR / "wbc" / "mocap_leg_prior.npz"), allow_pickle=False)
-    return [float(v) for v in z["global_mean"]]  # WB5's assets/wbc/mocap_leg_prior.npz, not yet landed
+    return [float(v) for v in mocap_leg_default()]
 
 
 if __name__ == "__main__":

@@ -291,7 +291,7 @@
         <body name="paddle" pos="0.085 0 0">
           <inertial pos="0.06 0 0" mass="0.17" diaginertia="0.0004 0.0004 0.0004"/>
           <geom name="paddle_handle" type="capsule" fromto="0 0 0 0.06 0 0" size="0.012" rgba="0.35 0.22 0.12 1" contype="0" conaffinity="0"/>
-          <geom name="paddle_blade" type="cylinder" pos="0.12 0 0" zaxis="0 1 0" size="0.085 0.006" rgba="0.85 0.12 0.12 1" friction="0.4 0.005 0.0001"/>
+          <geom name="paddle_blade" type="cylinder" contype="0" conaffinity="0" pos="0.12 0 0" zaxis="0 1 0" size="0.085 0.006" rgba="0.85 0.12 0.12 1" friction="0.4 0.005 0.0001"/>
         </body>
 
                         </body>

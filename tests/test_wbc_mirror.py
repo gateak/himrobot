@@ -67,6 +67,29 @@ def test_actuators_json_numbers():
 
     assert data["total_mass_kg"] == pytest.approx(33.51114, abs=1e-4)
     assert data["fk_truth"]["min_foot_sphere_z"] == pytest.approx(0.0011, abs=2e-4)
+    assert data["fk_truth"]["pelvis_height_m"] == pytest.approx(0.793)
+    assert "ball" not in data["bodies"] and "ball" not in data["body_names"]
+    assert "paddle" in data["bodies"] and data["bodies"]["paddle"]["mass"] == pytest.approx(0.17)
+
+
+def test_fk_truth_is_pelvis_frame_and_independent_of_pelvis_placement(monkeypatch):
+    """The JSON must not change with TT_ROBOT_Y (scene.ROBOT_Y is read at
+    import; the WBC lane runs at -0.10, the default is 0.0): the FK block is
+    pelvis-relative, and adding the nominal pelvis position back gives the
+    full scene's world-frame FK at that stance."""
+    fk = mujoco_mirror.build_actuators_json()["fk_truth"]
+    full = scene.build_model(fixed_base=False, paddle=True, robot_table_collision=False)
+    fd = _stand_at_nominal(full)
+    blade_gid = mujoco.mj_name2id(full, mujoco.mjtObj.mjOBJ_GEOM, "paddle_blade")
+    paddle_bid = mujoco.mj_name2id(full, mujoco.mjtObj.mjOBJ_BODY, "paddle")
+    assert np.allclose(np.array(fk["paddle_blade_pos"]) + scene.BASE_NOMINAL_POS, fd.geom_xpos[blade_gid], atol=1e-9)
+    assert np.allclose(np.array(fk["paddle_body_pos"]) + scene.BASE_NOMINAL_POS, fd.xpos[paddle_bid], atol=1e-9)
+    assert np.allclose(fk["paddle_blade_normal"], fd.geom_xmat[blade_gid].reshape(3, 3)[:, 2], atol=1e-9)
+
+    shifted = scene.BASE_NOMINAL_POS + np.array([0.3, -0.10, 0.05])
+    monkeypatch.setattr(scene, "BASE_NOMINAL_POS", shifted)
+    fk_shifted = mujoco_mirror.build_actuators_json()["fk_truth"]
+    assert fk_shifted == fk
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +120,26 @@ def test_mirror_xml_loads_with_expected_joints_and_body():
     assert free == ["floating_base_joint"]
 
     assert mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "paddle") >= 0
+
+
+def test_mirror_xml_paddle_blade_collides_with_nothing():
+    """The honest scored scene masks paddle_blade to bits 4/4 (meets only the
+    ball); the mirror has no ball, so the blade must collide with nothing --
+    never the robot's own body (the vendored 1/1 default lets it strike the
+    hips mid-swing), never the floor."""
+    m = mujoco.MjModel.from_xml_path(str(XML_PATH))
+    blade_gid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "paddle_blade")
+    assert int(m.geom_contype[blade_gid]) == 0 and int(m.geom_conaffinity[blade_gid]) == 0
+
+    full = scene.build_model(fixed_base=False, paddle=True, robot_table_collision=False)
+    full_blade = mujoco.mj_name2id(full, mujoco.mjtObj.mjOBJ_GEOM, "paddle_blade")
+    ball_gid = mujoco.mj_name2id(full, mujoco.mjtObj.mjOBJ_GEOM, "ball")
+    ct, ca = int(full.geom_contype[full_blade]), int(full.geom_conaffinity[full_blade])
+    for gid in range(full.ngeom):
+        if gid in (full_blade, ball_gid):
+            continue
+        can_touch = bool((ct & int(full.geom_conaffinity[gid])) or (int(full.geom_contype[gid]) & ca))
+        assert not can_touch, mujoco.mj_id2name(full, mujoco.mjtObj.mjOBJ_GEOM, gid)
 
 
 def test_mirror_xml_mass_matches_full_scene_minus_ball():

@@ -470,8 +470,7 @@
     "right_wrist_roll_link",
     "right_wrist_pitch_link",
     "right_wrist_yaw_link",
-    "paddle",
-    "ball"
+    "paddle"
   ],
   "bodies": {
     "world": {
@@ -729,18 +728,11 @@
         0.0004,
         0.0004
       ]
-    },
-    "ball": {
-      "mass": 0.0027,
-      "diaginertia": [
-        4.32e-07,
-        4.32e-07,
-        4.32e-07
-      ]
     }
   },
   "total_mass_kg": 33.51114200000001,
   "fk_truth": {
+    "frame": "pelvis body frame at STAND_POSE; world = value + scene.BASE_NOMINAL_POS (BASE_NOMINAL_QUAT is the identity); independent of TT_ROBOT_Y",
     "stand_pose": [
       0.0,
       0.0,
@@ -772,11 +764,7 @@
       0.0,
       0.0
     ],
-    "base_nominal_pos": [
-      -1.77,
-      0.0,
-      0.793
-    ],
+    "pelvis_height_m": 0.793,
     "base_nominal_quat": [
       1.0,
       0.0,
@@ -784,14 +772,14 @@
       0.0
     ],
     "paddle_body_pos": [
-      -1.7792024948025125,
+      -0.009202494802512375,
       -0.23886116683609795,
-      0.6409972852502727
+      -0.15200271474972737
     ],
     "paddle_blade_pos": [
-      -1.76825202849291,
+      0.0017479715070902197,
       -0.26295973944149414,
-      0.5239530795586421
+      -0.2690469204413579
     ],
     "paddle_blade_normal": [
       0.015529482822820184,
@@ -799,15 +787,15 @@
       -0.20024449533808128
     ],
     "left_ankle_roll_link_pos": [
-      -1.7700023309048882,
+      -2.330904888225498e-06,
       0.118506455,
-      0.036136247577825256
+      -0.7568637524221747
     ],
     "right_ankle_roll_link_pos": [
-      -1.7700023309048882,
+      -2.330904888225498e-06,
       -0.118506455,
-      0.036136247577825256
+      -0.7568637524221747
     ],
-    "min_foot_sphere_z": 0.0011362475778252572
+    "min_foot_sphere_z": 0.0011362475778252668
   }
 }

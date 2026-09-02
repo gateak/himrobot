@@ -36,3 +36,22 @@ Shipped: `assets/policies/param_residual_free_v4_s1best.npz` (needs `TT_WAIST_LI
   which is the torso's contribution — the whole-body lane's job (waist free + counterbalance + stepping).
 - Falls (~17 %) did not go down: the fall penalty priced them but the 20 knobs have no balance authority. The
   remaining falls are the whole-body lane's other job.
+
+## Addendum — the remaining falls were the post-swing snap-back (same day)
+
+Fall analysis on s1/best (200 serves, seed 11): 31 of 38 falls came on serves it had returned legally, median
+fall time 2.8 s; serves it never swung at almost never fell (5/61). The hitter snaps its arm/waist target from
+the follow-through pose to STAND_POSE in one control step at kp = 500. New knob `TT_RETURN_BLEND=<s>` (default
+0 = today, bit-exact) eases that return:
+
+| return blend | legal | target | contacts | falls (200, seed 11) |
+|---|---|---|---|---|
+| 0 (snap) | 56.5 % | 12.0 % | 139 | 38 (19 %) |
+| 0.15 s | 56.5 % | 12.0 % | 137 | 22 |
+| **0.30 s** | 56.5 % | 12.0 % | 138 | **5 (2.5 %)** |
+| 0.60 s / 1.0 s | 56.5 % | 12.0 % | 137 | 5 |
+
+**600 serves (seeds 11/2000/4000), s1/best + `TT_RETURN_BLEND=0.3`: 59.8 % legal / 18.0 % target / 0.45 m,
+falls 14/600 (2.3 %)** — from 16.8 %, returns unchanged. The free-standing recipe is now:
+`TT_ROBOT_Y=-0.10 TT_WAIST_LIMIT=0,0 TT_RETURN_BLEND=0.3 TT_PARAM_NPZ=assets/policies/param_residual_free_v4_s1best.npz`,
+free base, `robot_table_collision=false`.

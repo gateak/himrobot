@@ -39,9 +39,17 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
+from himrobot.sim import scene
+
+N_LEG = 12
 N_WAIST = 3
 N_ARM = 14
 N_CMD = N_WAIST + N_ARM  # 17, matches mdp.observations.N_CMD / mdp.actions' u slice
+assert N_LEG + N_CMD == scene.NUM_JOINTS
+
+# STAND_POSE[12:29]: what an idle row commands on every step, and what a
+# library row's u[t] is measured against (swing_start_step's definition).
+STAND_CMD = torch.as_tensor(scene.STAND_POSE[N_LEG:], dtype=torch.float32)  # (17,)
 
 PREVIEW_OFFSETS = (0, 5, 10, 15, 25)  # u(t+k) horizons this command exposes (steps @ 50 Hz)
 TIME_JITTER_STEPS = 3  # library time-jitter, sec 6.1: "not perfectly phase-locked"
@@ -76,6 +84,38 @@ def library_mix_at(iteration: int) -> dict[str, float]:
         if iteration >= threshold:
             mix = m
     return mix
+
+
+def restrict_mix(mix: dict[str, float], loaded_labels: list[str]) -> dict[str, float]:
+    """``mix`` reduced to the labels a run actually loaded and renormalised
+    to sum to 1. A run that loads none of the schedule's labels (Gate 0's
+    single ``eval`` library, a debugging run with one file) falls back to
+    uniform over what it has -- without this, sampling asked the bank for a
+    label it never held and raised."""
+    kept = {label: w for label, w in mix.items() if label in loaded_labels and w > 0.0}
+    total = sum(kept.values())
+    if total <= 0.0:
+        return {label: 1.0 / len(loaded_labels) for label in loaded_labels}
+    return {label: w / total for label, w in kept.items()}
+
+
+def pad29(u17: torch.Tensor) -> torch.Tensor:
+    """(..., 17) JOINT_ORDER[12:29] targets -> (..., 29) with zeros on the leg
+    slots -- himrobot.wbc.replay_library._pad29's torch twin. Both
+    mdp.observations.compute_actor_obs and mdp.actions.joint_target_wbc
+    read only [12:29] of a 29-dim ``u`` (legs come from leg_default), so the
+    padding is never read; it exists so the library's 17-wide rows fit the
+    29-wide contract those functions share with the numpy runtime."""
+    zeros = torch.zeros(u17.shape[:-1] + (N_LEG,), dtype=u17.dtype, device=u17.device)
+    return torch.cat([zeros, u17], dim=-1)
+
+
+def apply_idle(u17: torch.Tensor, idle: torch.Tensor) -> torch.Tensor:
+    """Rows flagged ``idle`` (N,) bool read STAND_POSE[12:] instead of their
+    library frame -- the design's 5 % idle resets (sec 6.1: "u == STAND_POSE
+    for 150 steps") without needing a dedicated all-STAND row in the bank."""
+    stand = STAND_CMD.to(device=u17.device, dtype=u17.dtype)
+    return torch.where(idle.unsqueeze(-1), stand.expand_as(u17), u17)
 
 
 # ---------------------------------------------------------------------------

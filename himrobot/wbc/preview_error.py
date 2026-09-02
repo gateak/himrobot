@@ -16,6 +16,12 @@ BOTH rows are inside a swing window (neither equals scene.STAND_POSE) --
 
 Prints and writes work/wbc/preview_error.json: joint-space RMS and max error
 (radians) at k=5 (0.1 s ahead) and k=10 (0.2 s ahead), against THRESHOLD_RAD.
+preview() is evaluated with hitter.dls_iters = --dls-iters, defaulting to
+himrobot.policies.wbc_np.PREVIEW_DLS_ITERS -- the throttled setting the
+deploy runtime actually feeds the WBC (its act() lowers dls_iters around the
+preview() call only; see that module's docstring) -- so the number here is
+the gap the policy will really see; pass --dls-iters 20 for the hitter's
+own default. The JSON records ``dls_iters``.
 Decision rule (docs/design/whole_body_v1.md sec 5.3, verbatim): the runtime
 WBC sees preview(t) in its observation, so if this error exceeds the
 threshold the swing libraries must be re-recorded storing preview(t) instead
@@ -46,6 +52,7 @@ from himrobot.paths import ASSETS_DIR, REPO_ROOT  # noqa: E402
 from himrobot.sim import scene  # noqa: E402
 from himrobot.policies.ik_hitter import IK_INDICES  # noqa: E402
 from himrobot.policies.param_residual_np import NumpyParamResidualPolicy  # noqa: E402
+from himrobot.policies.wbc_np import PREVIEW_DLS_ITERS  # noqa: E402
 
 V3_WEIGHTS = str(ASSETS_DIR / "policies" / "param_residual_v3_s0final.npz")
 N_TRIALS = 200
@@ -66,7 +73,7 @@ def _in_window(row: np.ndarray) -> bool:
 
 
 def run(weights: str, n_trials: int, seed_base: int, steps_per_trial: int,
-       horizon: int, k_check: tuple[int, ...]) -> dict:
+       horizon: int, k_check: tuple[int, ...], dls_iters: int = PREVIEW_DLS_ITERS) -> dict:
     env = scene.TableTennisEnv(seed=0, params={})
     policy = NumpyParamResidualPolicy(weights)
 
@@ -87,9 +94,14 @@ def run(weights: str, n_trials: int, seed_base: int, steps_per_trial: int,
         actions = np.empty((steps_per_trial, scene.NUM_JOINTS), dtype=np.float64)
         previews = np.empty((steps_per_trial, horizon, scene.NUM_JOINTS), dtype=np.float64)
         for step in range(steps_per_trial):
-            action = policy.act(obs)
+            action = policy.act(obs)  # at the hitter's real dls_iters, exactly as NumpyWBCPolicy.act
             actions[step] = action
-            previews[step] = policy.hitter.preview(obs, horizon)
+            saved_iters = policy.hitter.dls_iters
+            policy.hitter.dls_iters = dls_iters
+            try:
+                previews[step] = policy.hitter.preview(obs, horizon)
+            finally:
+                policy.hitter.dls_iters = saved_iters
             obs, _events = env.step(action)
 
         for i in range(steps_per_trial):
@@ -116,7 +128,7 @@ def run(weights: str, n_trials: int, seed_base: int, steps_per_trial: int,
         weights_rec = weights
     result: dict = {
         "weights": weights_rec, "n_trials": n_trials, "seed_base": seed_base,
-        "steps_per_trial": steps_per_trial, "horizon": horizon,
+        "steps_per_trial": steps_per_trial, "horizon": horizon, "dls_iters": int(dls_iters),
         "robot_y": float(scene.ROBOT_Y), "threshold_rad": THRESHOLD_RAD, "k": {},
     }
     for k in k_check:
@@ -140,12 +152,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed-base", type=int, default=SEED_BASE)
     ap.add_argument("--steps-per-trial", type=int, default=STEPS_PER_TRIAL)
     ap.add_argument("--horizon", type=int, default=HORIZON)
+    ap.add_argument("--dls-iters", type=int, default=PREVIEW_DLS_ITERS,
+                    help="hitter.dls_iters for preview(); default = the deploy runtime's throttle")
     ap.add_argument("--out", default=DEFAULT_OUT)
     args = ap.parse_args(argv)
 
     start = time.time()
     result = run(args.weights, args.n_trials, args.seed_base, args.steps_per_trial,
-                args.horizon, K_CHECK)
+                args.horizon, K_CHECK, dls_iters=args.dls_iters)
     result["elapsed_s"] = time.time() - start
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
@@ -153,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(result, fh, indent=2, sort_keys=True)
 
     print(f"preview_error: {args.n_trials} serves x {args.steps_per_trial} steps "
-          f"(ROBOT_Y={scene.ROBOT_Y:g}), {result['elapsed_s']:.1f}s")
+          f"(ROBOT_Y={scene.ROBOT_Y:g}, preview dls_iters={args.dls_iters}), {result['elapsed_s']:.1f}s")
     for k in K_CHECK:
         row = result["k"][str(k)]
         print(f"  k={k:<2d} ({k * scene.SIM_DT * scene.DECIMATION * 1000:.0f} ms ahead): "

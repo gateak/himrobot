@@ -162,15 +162,18 @@ def _fk_truth(m: mujoco.MjModel, d: mujoco.MjData) -> dict:
     pelvis body, so the block is identical whatever TT_ROBOT_Y (or any other
     pelvis placement) is in effect; ``min_foot_sphere_z`` is the one world-z
     number, quoted with the pelvis at the nominal ``pelvis_height_m``
-    (scene.ROBOT_Z, a constant)."""
+    (scene.ROBOT_Z, a constant). The FK is evaluated with the pelvis AT THE
+    ORIGIN with the identity orientation, so the pelvis frame coincides with
+    the world frame and the stored numbers involve no subtraction -- they are
+    bit-identical across stances, which the committed-file test relies on."""
     qadr = np.array([m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
                      for n in scene.JOINT_ORDER])
     base_jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, "floating_base_joint")
     base_qadr = int(m.jnt_qposadr[base_jid])
 
     mujoco.mj_resetData(m, d)
-    d.qpos[base_qadr:base_qadr + 3] = scene.BASE_NOMINAL_POS
-    d.qpos[base_qadr + 3:base_qadr + 7] = scene.BASE_NOMINAL_QUAT
+    d.qpos[base_qadr:base_qadr + 3] = 0.0
+    d.qpos[base_qadr + 3:base_qadr + 7] = [1.0, 0.0, 0.0, 0.0]
     d.qpos[qadr] = scene.STAND_POSE
     mujoco.mj_forward(m, d)
 
@@ -178,6 +181,7 @@ def _fk_truth(m: mujoco.MjModel, d: mujoco.MjData) -> dict:
     assert pelvis_bid >= 0
     p0 = d.xpos[pelvis_bid].copy()
     r0 = d.xmat[pelvis_bid].reshape(3, 3).copy()
+    assert np.all(p0 == 0.0) and np.array_equal(r0, np.eye(3)), "pelvis is not the free-joint body?"
 
     def rel_pos(p_world: np.ndarray) -> list[float]:
         return [float(v) for v in r0.T @ (np.asarray(p_world) - p0)]

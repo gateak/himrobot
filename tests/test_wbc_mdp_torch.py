@@ -2,21 +2,15 @@
 (no isaaclab, no stub gate; plain torch on CPU). See that package's
 docstring for the three-tier split.
 
-Note on "parity": docs/design/whole_body_v1.md sec 3 specifies these
-functions as torch twins of himrobot/wbc/{obs,action}.py -- WB3, which has
-not landed in this branch yet (checked at the top of this file so the
-intent is unmistakable once it does). Until then, "parity" here means each
-torch function agrees with an INDEPENDENTLY written reference of the same
-design-doc formula (a second, differently-coded implementation in this
-file), which is exactly what a numpy-vs-torch parity test buys once WB3
-exists -- replace REFERENCE_* below with a direct call into
-himrobot.wbc.obs/action when it lands.
+Genuine numpy-vs-torch parity: himrobot.wbc.obs / himrobot.wbc.action (WB3)
+landed in this branch alongside this work item, so the tests below check the
+torch functions directly against them (not an independently-coded stand-in)
+-- exactly the parity docs/design/whole_body_v1.md sec 9 item 3 asks for.
 
 Run with: .venv/bin/python -m pytest tests/test_wbc_mdp_torch.py -v
 """
 from __future__ import annotations
 
-import importlib.util
 import math
 
 import numpy as np
@@ -24,24 +18,10 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from himrobot.sim import scene  # noqa: E402
+from himrobot.wbc import action as wbc_action  # noqa: E402
+from himrobot.wbc import obs as wbc_obs  # noqa: E402
 from himrobot.wbc.isaac.mdp import actions, commands, observations, rewards, terminations  # noqa: E402
-
-WB3_LANDED = importlib.util.find_spec("himrobot.wbc.obs") is not None
-
-
-# ---------------------------------------------------------------------------
-# helpers: an independently-coded reference for every torch function under test.
-# ---------------------------------------------------------------------------
-def _ref_quat_rotate_matrix(q_wxyz: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """Rotate v by q via an explicit 3x3 rotation matrix -- a different
-    code path from observations.quat_rotate's cross-product formula."""
-    w, x, y, z = q_wxyz
-    R = np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-    ])
-    return R @ v
 
 
 def _random_unit_quats(n: int, rng: np.random.Generator) -> np.ndarray:
@@ -49,186 +29,223 @@ def _random_unit_quats(n: int, rng: np.random.Generator) -> np.ndarray:
     return q / np.linalg.norm(q, axis=-1, keepdims=True)
 
 
-def _ref_joint_target_wbc(a, u, leg_default, low, high):
-    """Independent numpy re-implementation of actions.joint_target_wbc."""
-    a = np.clip(a, -1.0, 1.0)
-    legs = leg_default + actions.LEG_SCALE * a[..., :actions.N_LEG]
-    waist = u[..., :actions.N_WAIST] + actions.WAIST_SCALE * a[..., actions.N_LEG:actions.N_LEG + actions.N_WAIST]
-    arms = u[..., actions.N_WAIST:actions.N_WAIST + actions.N_ARM]
-    target = np.concatenate([legs, waist, arms], axis=-1)
-    return np.clip(target, low, high)
-
-
 # ---------------------------------------------------------------------------
-# 1. quaternion rotation utilities
+# 1. quaternion rotation utilities vs himrobot.wbc.obs.
 # ---------------------------------------------------------------------------
-def test_quat_rotate_matches_independent_rotation_matrix():
+def test_body_frame_vector_matches_numpy_wbc_obs():
     rng = np.random.default_rng(0)
     quats = _random_unit_quats(1000, rng)
     vecs = rng.normal(size=(1000, 3))
 
-    got = observations.quat_rotate(torch.as_tensor(quats, dtype=torch.float64),
-                                   torch.as_tensor(vecs, dtype=torch.float64)).numpy()
-    want = np.stack([_ref_quat_rotate_matrix(quats[i], vecs[i]) for i in range(1000)])
+    want = np.stack([wbc_obs.body_frame_vector(quats[i], vecs[i]) for i in range(1000)])
+    got = observations.body_frame_vector(
+        torch.as_tensor(quats, dtype=torch.float64), torch.as_tensor(vecs, dtype=torch.float64)
+    ).numpy()
+    np.testing.assert_allclose(got, want, atol=1e-9)
+
+
+def test_body_frame_gravity_matches_numpy_via_balance_env():
+    """himrobot.wbc.obs re-exports himrobot.rl.balance_env.body_frame_gravity
+    unmodified -- checked directly against that numpy function."""
+    from himrobot.rl.balance_env import body_frame_gravity as np_body_frame_gravity
+
+    rng = np.random.default_rng(1)
+    quats = _random_unit_quats(300, rng)
+    want = np.stack([np_body_frame_gravity(q) for q in quats])
+    got = observations.body_frame_gravity(torch.as_tensor(quats, dtype=torch.float64)).numpy()
+    np.testing.assert_allclose(got, want, atol=1e-9)
+
+
+def test_heading_cos_sin_matches_numpy_wbc_obs():
+    rng = np.random.default_rng(2)
+    quats = _random_unit_quats(500, rng)
+    want = np.stack([wbc_obs.heading_cos_sin(q) for q in quats])
+    got = observations.heading_cos_sin(torch.as_tensor(quats, dtype=torch.float64)).numpy()
     np.testing.assert_allclose(got, want, atol=1e-9)
 
 
 def test_quat_rotate_is_a_rotation_norm_preserving():
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(3)
     quats = torch.as_tensor(_random_unit_quats(200, rng), dtype=torch.float64)
     vecs = torch.as_tensor(rng.normal(size=(200, 3)), dtype=torch.float64)
     rotated = observations.quat_rotate(quats, vecs)
     np.testing.assert_allclose(rotated.norm(dim=-1).numpy(), vecs.norm(dim=-1).numpy(), atol=1e-9)
 
 
-def test_body_frame_vector_is_the_inverse_rotation_of_quat_rotate():
-    """Rotating a world vector into the body frame, then back into world
-    (via quat_rotate with the SAME quaternion, undoing the conjugate),
-    returns the original vector -- two independent code paths composed
-    should be the identity."""
-    rng = np.random.default_rng(2)
-    q = torch.as_tensor(_random_unit_quats(500, rng), dtype=torch.float64)
-    v = torch.as_tensor(rng.normal(size=(500, 3)), dtype=torch.float64)
-    body = observations.body_frame_vector(q, v)
-    back_to_world = observations.quat_rotate(q, body)
-    np.testing.assert_allclose(back_to_world.numpy(), v.numpy(), atol=1e-9)
-
-
-def test_body_frame_gravity_is_unit_norm_and_matches_manual_formula():
-    rng = np.random.default_rng(3)
-    q = torch.as_tensor(_random_unit_quats(300, rng), dtype=torch.float64)
-    g = observations.body_frame_gravity(q)
-    np.testing.assert_allclose(g.norm(dim=-1).numpy(), np.ones(300), atol=1e-9)
-    world_down = torch.zeros(300, 3, dtype=torch.float64)
-    world_down[:, 2] = -1.0
-    manual = observations.body_frame_vector(q, world_down)
-    np.testing.assert_allclose(g.numpy(), manual.numpy(), atol=0.0)
-
-
-def test_heading_cos_sin_identity_quat_faces_plus_x():
-    identity = torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float64)
-    cos_sin = observations.heading_cos_sin(identity)
-    np.testing.assert_allclose(cos_sin.numpy(), [[1.0, 0.0]], atol=1e-12)
-
-
-def test_heading_cos_sin_matches_independent_atan2_of_yaw_only_quat():
-    """For a pure-yaw quaternion (w=cos(psi/2), z=sin(psi/2)), heading_cos_sin
-    must reproduce (cos psi, sin psi) exactly -- checked against psi drawn
-    directly, not recomputed through the same trig path."""
+# ---------------------------------------------------------------------------
+# 2. default_pose / swing_clock vs himrobot.wbc.obs.
+# ---------------------------------------------------------------------------
+def test_default_pose_matches_numpy_wbc_obs():
     rng = np.random.default_rng(4)
-    psi = rng.uniform(-math.pi, math.pi, size=200)
-    q = np.stack([np.cos(psi / 2), np.zeros_like(psi), np.zeros_like(psi), np.sin(psi / 2)], axis=-1)
-    got = observations.heading_cos_sin(torch.as_tensor(q, dtype=torch.float64)).numpy()
-    want = np.stack([np.cos(psi), np.sin(psi)], axis=-1)
+    leg_defaults = rng.uniform(-0.3, 0.3, size=(50, 12))
+    like = torch.zeros(50, 29, dtype=torch.float64)
+    got = observations.default_pose(torch.as_tensor(leg_defaults, dtype=torch.float64), like).numpy()
+    want = np.stack([wbc_obs.default_pose(leg_defaults[i]) for i in range(50)])
+    np.testing.assert_allclose(got, want, atol=1e-12)
+
+
+def test_swing_clock_matches_numpy_wbc_obs():
+    rng = np.random.default_rng(5)
+    n = 500
+    t_now = rng.uniform(0.0, 2.0, size=n)
+    t_contact = rng.uniform(0.4, 1.4, size=n)
+    t_pre = rng.uniform(0.2, 0.4, size=n)
+    t_follow = rng.uniform(0.1, 0.3, size=n)
+    speed_buffer = np.zeros(n)  # himrobot.wbc.replay_library._fake_plan's own convention
+
+    want = np.stack([
+        wbc_obs.swing_clock(float(t_now[i]),
+                            {"t_contact": float(t_contact[i]), "speed_buffer": float(speed_buffer[i]),
+                             "t_pre": float(t_pre[i]), "t_follow": float(t_follow[i])})
+        for i in range(n)
+    ])
+    got = observations.swing_clock(
+        torch.as_tensor(t_now), torch.as_tensor(t_contact), torch.as_tensor(speed_buffer),
+        torch.as_tensor(t_pre), torch.as_tensor(t_follow),
+    ).numpy()
     np.testing.assert_allclose(got, want, atol=1e-9)
 
 
+def test_swing_clock_no_plan_is_all_zero():
+    zero = wbc_obs.swing_clock(0.5, None)
+    np.testing.assert_allclose(zero, [0.0, 0.0, 0.0])
+
+
 # ---------------------------------------------------------------------------
-# 2. observation layout
+# 3. observation layout dims and full flatten() parity.
 # ---------------------------------------------------------------------------
-def test_actor_and_critic_obs_dims():
-    assert observations.ACTOR_OBS_DIM == 141
+def test_actor_and_critic_obs_dims_match_wbc_obs():
+    assert observations.ACTOR_OBS_DIM == wbc_obs.OBS_DIM == 141
+    assert observations.ACT_DIM == wbc_obs.ACT_DIM == 15
     assert observations.CRITIC_EXTRA_DIM == 35
     assert observations.CRITIC_OBS_DIM == 176
 
 
-def test_compute_actor_obs_shape_and_zero_state_is_mostly_zero():
-    n = 4
-    zeros3 = torch.zeros(n, 3, dtype=torch.float32)
-    identity_quat = torch.zeros(n, 4, dtype=torch.float32)
-    identity_quat[:, 0] = 1.0
-    leg_default = torch.zeros(n, observations.N_LEG, dtype=torch.float32)
-    joint_pos = torch.zeros(n, 29, dtype=torch.float32)
-    joint_pos[:, observations.N_LEG:] = observations._CMD_DEFAULT  # matches the default pose exactly
-    prev_action = torch.zeros(n, 15, dtype=torch.float32)
-    u = observations._CMD_DEFAULT.unsqueeze(0).expand(n, -1)
-    swing_clock = torch.zeros(n, 3, dtype=torch.float32)
-    base_pos = observations._BASE_NOMINAL_POS.unsqueeze(0).expand(n, -1)
+def _random_obs_dict(rng: np.random.Generator) -> dict:
+    quat = rng.normal(size=4)
+    quat /= np.linalg.norm(quat)
+    return {
+        "base.orientation": quat,
+        "base.angular_velocity": rng.normal(size=3),
+        "base.linear_velocity": rng.normal(size=3),
+        "base.position": scene.BASE_NOMINAL_POS + rng.normal(size=3) * 0.1,
+        "robot.joint_position": scene.STAND_POSE + rng.normal(size=29) * 0.05,
+        "robot.joint_velocity": rng.normal(size=29),
+        "time_s": float(rng.uniform(0.0, 2.0)),
+    }
 
-    obs = observations.compute_actor_obs(
-        base_quat=identity_quat, base_ang_vel=zeros3, base_lin_vel_w=zeros3, base_pos=base_pos,
-        joint_pos=joint_pos, joint_vel=torch.zeros(n, 29, dtype=torch.float32), leg_default=leg_default,
-        prev_action=prev_action, u_now=u, u_p5=u, u_p10=u, swing_clock=swing_clock,
-    )
-    assert obs.shape == (n, 141)
-    # gravity_b at identity orientation is world-down == [0, 0, -1]; heading
-    # at identity orientation is (cos 0, sin 0) = (1, 0) (slots 12:14); every
-    # other slot in this all-default state is exactly zero.
-    expected = torch.zeros(n, 141)
-    expected[:, 2] = -1.0
-    expected[:, 12] = 1.0
-    np.testing.assert_allclose(obs.numpy(), expected.numpy(), atol=1e-9)
+
+def test_compute_actor_obs_matches_himrobot_wbc_obs_flatten_over_1000_random_states():
+    rng = np.random.default_rng(6)
+    n = 1000
+    obs_dicts = [_random_obs_dict(rng) for _ in range(n)]
+    prev_actions = rng.uniform(-1.0, 1.0, size=(n, 15))
+    leg_defaults = rng.uniform(-0.3, 0.3, size=(n, 12))
+    u_now = np.stack([scene.STAND_POSE + rng.normal(size=29) * 0.1 for _ in range(n)])
+    u_p5 = np.stack([scene.STAND_POSE + rng.normal(size=29) * 0.1 for _ in range(n)])
+    u_p10 = np.stack([scene.STAND_POSE + rng.normal(size=29) * 0.1 for _ in range(n)])
+    t_contact = rng.uniform(0.4, 1.4, size=n)
+    t_pre = rng.uniform(0.2, 0.4, size=n)
+    t_follow = rng.uniform(0.1, 0.3, size=n)
+
+    want = np.stack([
+        wbc_obs.flatten(
+            obs_dicts[i], prev_actions[i], u_now[i], u_p5[i], u_p10[i],
+            {"t_contact": t_contact[i], "speed_buffer": 0.0, "t_pre": t_pre[i], "t_follow": t_follow[i]},
+            leg_defaults[i],
+        )
+        for i in range(n)
+    ])
+
+    base_quat = torch.as_tensor(np.stack([d["base.orientation"] for d in obs_dicts]), dtype=torch.float64)
+    base_ang_vel = torch.as_tensor(np.stack([d["base.angular_velocity"] for d in obs_dicts]), dtype=torch.float64)
+    base_lin_vel = torch.as_tensor(np.stack([d["base.linear_velocity"] for d in obs_dicts]), dtype=torch.float64)
+    base_pos = torch.as_tensor(np.stack([d["base.position"] for d in obs_dicts]), dtype=torch.float64)
+    joint_pos = torch.as_tensor(np.stack([d["robot.joint_position"] for d in obs_dicts]), dtype=torch.float64)
+    joint_vel = torch.as_tensor(np.stack([d["robot.joint_velocity"] for d in obs_dicts]), dtype=torch.float64)
+    t_now = torch.as_tensor(np.array([d["time_s"] for d in obs_dicts]), dtype=torch.float64)
+
+    got = observations.compute_actor_obs(
+        base_quat=base_quat, base_ang_vel=base_ang_vel, base_lin_vel_w=base_lin_vel, base_pos=base_pos,
+        joint_pos=joint_pos, joint_vel=joint_vel, leg_default=torch.as_tensor(leg_defaults, dtype=torch.float64),
+        prev_action=torch.as_tensor(prev_actions, dtype=torch.float64),
+        u_now=torch.as_tensor(u_now, dtype=torch.float64), u_p5=torch.as_tensor(u_p5, dtype=torch.float64),
+        u_p10=torch.as_tensor(u_p10, dtype=torch.float64),
+        t_now=t_now, t_contact=torch.as_tensor(t_contact, dtype=torch.float64),
+        speed_buffer=torch.zeros(n, dtype=torch.float64),
+        t_pre=torch.as_tensor(t_pre, dtype=torch.float64), t_follow=torch.as_tensor(t_follow, dtype=torch.float64),
+    ).numpy()
+
+    np.testing.assert_allclose(got, want, atol=1e-6)
 
 
 def test_compute_critic_extra_shape_and_values():
     n = 3
-    u15 = torch.rand(n, 17)
-    u25 = torch.rand(n, 17)
+    u15 = torch.rand(n, 29)
+    u25 = torch.rand(n, 29)
     serve_scale = torch.tensor([1.0, 1.3, 0.5])
     extra = observations.compute_critic_extra(u15, u25, serve_scale)
     assert extra.shape == (n, 35)
-    np.testing.assert_allclose(extra[:, :17].numpy(), (u15 - observations._CMD_DEFAULT).numpy(), atol=1e-6)
-    np.testing.assert_allclose(extra[:, 17:34].numpy(), (u25 - observations._CMD_DEFAULT).numpy(), atol=1e-6)
+    cmd_default = observations._CMD_DEFAULT
+    np.testing.assert_allclose(extra[:, :17].numpy(),
+                               (u15[:, observations._CMD_SLICE_29] - cmd_default).numpy(), atol=1e-6)
+    np.testing.assert_allclose(extra[:, 17:34].numpy(),
+                               (u25[:, observations._CMD_SLICE_29] - cmd_default).numpy(), atol=1e-6)
     np.testing.assert_allclose(extra[:, 34].numpy(), serve_scale.numpy(), atol=1e-9)
 
 
 # ---------------------------------------------------------------------------
-# 3. action mapping
+# 4. action mapping vs himrobot.wbc.action.
 # ---------------------------------------------------------------------------
-def test_action_dim_and_scales():
+def test_action_dim_and_scales_match_wbc_action():
     assert actions.ACTION_DIM == 15
-    assert actions.LEG_SCALE == 0.5
-    assert actions.WAIST_SCALE == 0.2
+    assert actions.LEG_SCALE == wbc_action.LEG_SCALE == 0.5
+    assert actions.WAIST_SCALE == wbc_action.WAIST_SCALE == 0.2
     assert [b.name for b in actions.ACTION_BLOCKS] == ["legs", "waist_residual", "arms_passthrough"]
     assert [b.dim for b in actions.ACTION_BLOCKS] == [12, 3, 14]
 
 
-def test_joint_target_wbc_matches_independent_numpy_reference():
-    rng = np.random.default_rng(5)
+def test_joint_target_wbc_matches_himrobot_wbc_action_over_1000_random_states():
+    rng = np.random.default_rng(7)
     n = 1000
     a = rng.uniform(-1.5, 1.5, size=(n, 15))  # deliberately outside [-1,1] to exercise the clamp
-    u = rng.uniform(-1.0, 1.0, size=(n, 17))
+    u = np.stack([scene.STAND_POSE + rng.normal(size=29) * 0.2 for _ in range(n)])
     leg_default = rng.uniform(-0.3, 0.3, size=(n, 12))
-    low = np.full((n, 29), -2.5)
-    high = np.full((n, 29), 2.5)
+    jnt_range = np.tile(np.stack([np.full(29, -2.5), np.full(29, 2.5)], axis=-1), (n, 1, 1))
 
+    want = np.stack([wbc_action.joint_target_wbc(a[i], u[i], jnt_range[i], leg_default[i]) for i in range(n)])
     got = actions.joint_target_wbc(
-        torch.as_tensor(a), torch.as_tensor(u), torch.as_tensor(leg_default),
-        torch.as_tensor(low), torch.as_tensor(high),
+        torch.as_tensor(a), torch.as_tensor(u), torch.as_tensor(leg_default), torch.as_tensor(jnt_range),
     ).numpy()
-    want = _ref_joint_target_wbc(a, u, leg_default, low, high)
-    np.testing.assert_allclose(got, want, atol=1e-12)
+    np.testing.assert_allclose(got, want, atol=1e-9)
 
 
 def test_joint_target_wbc_parity_anchor_zero_action_reproduces_hitter_output():
     """a = 0 with leg_default = STAND_POSE[:12] reproduces the hitter's own
-    29-dim action exactly: legs -> STAND_POSE[:12], waist+arms -> u
-    unchanged (docs/design/whole_body_v1.md sec 3.2)."""
-    from himrobot.sim import scene
+    29-dim action exactly (docs/design/whole_body_v1.md sec 3.2)."""
     n = 10
     a = torch.zeros(n, 15, dtype=torch.float64)
-    u = torch.as_tensor(np.tile(scene.STAND_POSE[12:], (n, 1)), dtype=torch.float64)
+    u = torch.as_tensor(np.tile(scene.STAND_POSE, (n, 1)), dtype=torch.float64)
     leg_default = torch.as_tensor(np.tile(scene.STAND_POSE[:12], (n, 1)), dtype=torch.float64)
-    low = torch.full((n, 29), -10.0, dtype=torch.float64)
-    high = torch.full((n, 29), 10.0, dtype=torch.float64)
+    jnt_range = torch.as_tensor(np.tile(np.stack([np.full(29, -10.0), np.full(29, 10.0)], axis=-1), (n, 1, 1)),
+                                dtype=torch.float64)
 
-    target = actions.joint_target_wbc(a, u, leg_default, low, high).numpy()
+    target = actions.joint_target_wbc(a, u, leg_default, jnt_range).numpy()
     expected = np.tile(scene.STAND_POSE, (n, 1))
     np.testing.assert_allclose(target, expected, atol=1e-12)
 
 
 def test_joint_target_wbc_clips_to_range():
     a = torch.zeros(1, 15)
-    u = torch.full((1, 17), 100.0)  # way outside any real joint range
+    u = torch.full((1, 29), 100.0)  # way outside any real joint range
     leg_default = torch.full((1, 12), -100.0)
-    low = torch.full((1, 29), -1.0)
-    high = torch.full((1, 29), 1.0)
-    target = actions.joint_target_wbc(a, u, leg_default, low, high)
+    jnt_range = torch.tensor([[[-1.0, 1.0]] * 29])
+    target = actions.joint_target_wbc(a, u, leg_default, jnt_range)
     assert torch.all(target <= 1.0) and torch.all(target >= -1.0)
 
 
 # ---------------------------------------------------------------------------
-# 4. reward kernels -- 3 hand-built states with hand-computed values.
+# 5. reward kernels -- 3 hand-built states with hand-computed values.
 # ---------------------------------------------------------------------------
 def test_reward_term_table_matches_design_doc():
     names = [t.name for t in rewards.REWARD_TERMS]
@@ -236,7 +253,9 @@ def test_reward_term_table_matches_design_doc():
         "station", "station_post_swing", "box_excursion", "height", "upright", "heading",
         "base_lin_vel", "base_ang_vel", "feet_contact", "foot_slip", "mocap_leg_prior",
         "action_rate", "leg_joint_vel", "leg_torque", "joint_limit", "waist_residual", "undesired_contact",
+        "termination",
     ]
+    assert rewards.REWARD_WEIGHTS["termination"] == -10.0  # sec 3.3: "a termination costs -10 once"
     assert rewards.REWARD_WEIGHTS["station"] == 1.0
     assert rewards.REWARD_WEIGHTS["station_post_swing"] == 0.3
     assert rewards.REWARD_WEIGHTS["box_excursion"] == -1.0
@@ -257,21 +276,15 @@ def test_reward_term_table_matches_design_doc():
 
 
 def test_station_kernel_three_hand_built_states():
-    # state A: pelvis exactly at the nominal xy -> kernel == 1.0
     pos = torch.tensor([[1.0, 2.0]])
     target = torch.tensor([[1.0, 2.0]])
     np.testing.assert_allclose(rewards.station_kernel(pos, target).numpy(), [1.0], atol=1e-12)
 
-    # state B: pelvis 0.05 m away in x only (== the std) -> exp(-1) = 0.36788
-    pos_b = torch.tensor([[1.05, 2.0]])
-    got_b = rewards.station_kernel(pos_b, target).item()
-    assert got_b == pytest.approx(math.exp(-1.0), abs=1e-6)
+    pos_b = torch.tensor([[1.05, 2.0]])  # 0.05 m away == the std -> exp(-1)
+    assert rewards.station_kernel(pos_b, target).item() == pytest.approx(math.exp(-1.0), abs=1e-6)
 
-    # state C: pelvis 0.03 m in x and 0.04 m in y away (3-4-5 triangle,
-    # err^2 = 0.0025) -> exp(-0.0025 / 0.05^2) = exp(-1.0)
-    pos_c = torch.tensor([[1.03, 2.04]])
-    got_c = rewards.station_kernel(pos_c, target).item()
-    assert got_c == pytest.approx(math.exp(-1.0), abs=1e-6)
+    pos_c = torch.tensor([[1.03, 2.04]])  # err^2 = 0.0025 == 0.05^2 -> exp(-1)
+    assert rewards.station_kernel(pos_c, target).item() == pytest.approx(math.exp(-1.0), abs=1e-6)
 
 
 def test_height_upright_heading_kernels_hand_computed():
@@ -305,7 +318,6 @@ def test_feet_contact_bonus_and_foot_slip_and_undesired_contact():
     foot_vel = torch.tensor([[[0.3, 0.4]], [[0.0, 0.0]]])  # (2 envs, 1 foot, 2)
     in_contact = torch.tensor([[True], [True]])
     np.testing.assert_allclose(rewards.foot_slip_penalty(foot_vel, in_contact).numpy(), [0.5, 0.0], atol=1e-6)
-    # not in contact -> the slip is not counted even if the foot is moving
     in_contact2 = torch.tensor([[False], [True]])
     np.testing.assert_allclose(rewards.foot_slip_penalty(foot_vel, in_contact2).numpy(), [0.0, 0.0], atol=1e-6)
 
@@ -317,19 +329,18 @@ def test_joint_limit_violation_and_action_rate_and_torque_penalties():
     q = torch.tensor([[0.0, -1.0, 2.0]])
     low = torch.tensor([[-0.5, -0.5, -0.5]])
     high = torch.tensor([[0.5, 0.5, 0.5]])
-    # joint 0 in range (0 violation), joint 1 below by 0.5, joint 2 above by 1.5
     assert rewards.joint_limit_violation(q, low, high).item() == pytest.approx(2.0, abs=1e-9)
 
     a = torch.tensor([[1.0, 2.0]])
     prev = torch.tensor([[0.0, 0.0]])
-    assert rewards.action_rate_penalty(a, prev).item() == pytest.approx(5.0, abs=1e-9)  # 1^2 + 2^2
+    assert rewards.action_rate_penalty(a, prev).item() == pytest.approx(5.0, abs=1e-9)
 
     torque = torch.tensor([[3.0, 4.0]])
-    assert rewards.torque_penalty(torque).item() == pytest.approx(25.0, abs=1e-9)  # 3^2 + 4^2
+    assert rewards.torque_penalty(torque).item() == pytest.approx(25.0, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
-# 5. terminations
+# 6. terminations.
 # ---------------------------------------------------------------------------
 def test_termination_terms_and_thresholds():
     assert terminations.FALL_PELVIS_Z == pytest.approx(0.45)
@@ -346,10 +357,10 @@ def test_termination_terms_and_thresholds():
 
 
 # ---------------------------------------------------------------------------
-# 6. SwingLibraryCommand's pure-torch gather/clock/library-mix logic, on a
+# 7. SwingLibraryCommand's pure-torch gather/clock/library-mix logic, on a
 #    fake 3-row library, CPU.
 # ---------------------------------------------------------------------------
-def _fake_library() -> commands.SwingLibrary:
+def _fake_library(label: str = "fake", serve_scale: float = 1.0) -> commands.SwingLibrary:
     # 3 rows, 6 steps, 17 channels; row r's u[t] = r*100 + t so a gathered
     # value pins down exactly which (row, step) was read.
     u = torch.zeros(3, 6, 17)
@@ -357,11 +368,13 @@ def _fake_library() -> commands.SwingLibrary:
         for t in range(6):
             u[r, t, :] = r * 100 + t
     return commands.SwingLibrary(
-        label="fake",
-        u=u,
-        contact_step=torch.tensor([3, 4, 2]),
+        label=label, u=u,
         swing_start_step=torch.tensor([1, 1, 0]),
-        serve_scale=torch.tensor([1.0, 1.3, 0.5]),
+        contact_step=torch.tensor([3, 4, 2]),
+        t_contact=torch.tensor([0.06, 0.08, 0.04]),
+        t_pre=torch.tensor([0.02, 0.02, 0.02]),
+        t_follow=torch.tensor([0.02, 0.02, 0.02]),
+        serve_scale=serve_scale,
     )
 
 
@@ -394,48 +407,38 @@ def test_gather_previews_reads_every_offset():
     np.testing.assert_allclose(previews[10].numpy(), [[5.0] * 17])  # clamped past the end
 
 
-def test_swing_clock_in_window_flag_and_seconds():
-    contact = torch.tensor([10, 10])
-    start = torch.tensor([2, 2])
-    step_dt = 0.02  # 50 Hz
-    # before the window
-    clock_before = commands.swing_clock(torch.tensor([0, 0]), contact, start, step_dt)
-    assert clock_before[0, 0].item() == 0.0  # not in window
-    assert clock_before[0, 1].item() == pytest.approx(0.0)  # since_start clamped at 0
-    assert clock_before[0, 2].item() == pytest.approx(0.20, abs=1e-6)  # 10 steps * 0.02s
-
-    # inside the window
-    clock_in = commands.swing_clock(torch.tensor([5, 5]), contact, start, step_dt)
-    assert clock_in[0, 0].item() == 1.0
-    assert clock_in[0, 1].item() == pytest.approx(3 * step_dt, abs=1e-6)  # (5-2)*0.02
-    assert clock_in[0, 2].item() == pytest.approx(5 * step_dt, abs=1e-6)  # (10-5)*0.02
-
-    # to-contact clipping at +-1s
-    clock_far = commands.swing_clock(torch.tensor([0]), torch.tensor([1000]), torch.tensor([0]), step_dt, clip_s=1.0)
-    assert clock_far[0, 2].item() == pytest.approx(1.0)
+def test_gather_scalar_reads_the_right_row():
+    lib = _fake_library()
+    row_idx = torch.tensor([2, 0, 1])
+    got = commands.gather_scalar(lib.t_contact, row_idx)
+    np.testing.assert_allclose(got.numpy(), [0.04, 0.06, 0.08], atol=1e-6)
 
 
-def test_library_bank_pads_shorter_rows_and_offsets_are_contiguous():
-    lib_a = _fake_library()  # 3 rows, T=6
+def test_library_bank_pads_shorter_rows_and_broadcasts_serve_scale():
+    lib_a = _fake_library("fake", serve_scale=1.0)
     lib_b = commands.SwingLibrary(
         label="short", u=torch.ones(2, 3, 17) * 999.0,
-        contact_step=torch.tensor([1, 1]), swing_start_step=torch.tensor([0, 0]),
-        serve_scale=torch.tensor([1.0, 1.0]),
+        swing_start_step=torch.tensor([0, 0]), contact_step=torch.tensor([1, 1]),
+        t_contact=torch.tensor([0.02, 0.02]), t_pre=torch.tensor([0.0, 0.0]), t_follow=torch.tensor([0.0, 0.0]),
+        serve_scale=1.3,
     )
     bank = commands.LibraryBank.build({"fake": lib_a, "short": lib_b})
     assert bank.row_offset == {"fake": 0, "short": 3}
-    assert bank.combined.n_rows == 5
-    assert bank.combined.n_steps == 6  # padded up to the longer library's T
+    assert bank.n_rows == 5
+    assert bank.n_steps == 6  # padded up to the longer library's T
     # short's rows repeat their own last frame (999) for the padded tail, per gather_u's clamp rule
-    np.testing.assert_allclose(bank.combined.u[3, 5].numpy(), np.full(17, 999.0))
-    np.testing.assert_allclose(bank.combined.u[3, 2].numpy(), np.full(17, 999.0))
+    np.testing.assert_allclose(bank.u[3, 5].numpy(), np.full(17, 999.0))
+    np.testing.assert_allclose(bank.u[3, 2].numpy(), np.full(17, 999.0))
+    np.testing.assert_allclose(bank.serve_scale[:3].numpy(), np.full(3, 1.0))
+    np.testing.assert_allclose(bank.serve_scale[3:].numpy(), np.full(2, 1.3))
 
 
 def test_library_bank_sample_rows_only_draws_from_the_named_label():
     lib_a = _fake_library()
     lib_b = commands.SwingLibrary(
-        label="short", u=torch.ones(2, 3, 17), contact_step=torch.tensor([1, 1]),
-        swing_start_step=torch.tensor([0, 0]), serve_scale=torch.tensor([1.0, 1.0]),
+        label="short", u=torch.ones(2, 3, 17), swing_start_step=torch.tensor([0, 0]),
+        contact_step=torch.tensor([1, 1]), t_contact=torch.tensor([0.02, 0.02]),
+        t_pre=torch.tensor([0.0, 0.0]), t_follow=torch.tensor([0.0, 0.0]),
     )
     bank = commands.LibraryBank.build({"fake": lib_a, "short": lib_b})
     gen = torch.Generator().manual_seed(0)
@@ -480,3 +483,48 @@ def test_sample_reset_sources_respects_min_fill_guard():
     assert "post_swing_ring" not in labels_empty_ring
     labels_full_ring = set(commands.sample_reset_sources(2000, ring_filled=commands.RING_MIN_FILL, generator=gen))
     assert "post_swing_ring" in labels_full_ring
+
+
+# ---------------------------------------------------------------------------
+# 8. The 17 -> 29 padding, idle rows and mix restriction the command term
+#    relies on -- the library stores JOINT_ORDER[12:29] only, while
+#    compute_actor_obs / joint_target_wbc read [12:29] of a 29-vector.
+# ---------------------------------------------------------------------------
+def test_pad29_matches_replay_library_pad29_and_feeds_the_29_wide_consumers():
+    from himrobot.wbc.replay_library import _pad29
+
+    rng = np.random.default_rng(8)
+    u17 = rng.normal(size=(4, 17))
+    got = commands.pad29(torch.as_tensor(u17)).numpy()
+    want = np.stack([_pad29(u17[i]) for i in range(4)])
+    np.testing.assert_allclose(got, want, atol=1e-12)
+    assert got.shape == (4, 29)
+
+    # a padded row goes through the action mapping and lands on the arm/waist
+    # slots untouched (a = 0, jnt_range wide open)
+    a = torch.zeros(4, 15, dtype=torch.float64)
+    leg_default = torch.as_tensor(np.tile(scene.STAND_POSE[:12], (4, 1)))
+    jnt_range = torch.as_tensor(np.tile(np.stack([np.full(29, -10.0), np.full(29, 10.0)], -1), (4, 1, 1)))
+    target = actions.joint_target_wbc(a, torch.as_tensor(got), leg_default, jnt_range).numpy()
+    np.testing.assert_allclose(target[:, 12:], u17, atol=1e-12)
+    np.testing.assert_allclose(target[:, :12], np.tile(scene.STAND_POSE[:12], (4, 1)), atol=1e-12)
+
+
+def test_apply_idle_reads_stand_pose_on_flagged_rows_only():
+    lib = _fake_library()
+    u = commands.gather_u(lib.u, torch.tensor([0, 1, 2]), torch.tensor([3, 3, 3]))
+    idle = torch.tensor([False, True, False])
+    out = commands.apply_idle(u, idle)
+    np.testing.assert_allclose(out[0].numpy(), np.full(17, 3.0))
+    np.testing.assert_allclose(out[1].numpy(), scene.STAND_POSE[12:])
+    np.testing.assert_allclose(out[2].numpy(), np.full(17, 203.0))
+
+
+def test_restrict_mix_renormalises_to_loaded_labels_and_falls_back_to_uniform():
+    mix = commands.library_mix_at(0)  # slow 0.7 / nominal 0.3 / wide 0
+    got = commands.restrict_mix(mix, ["nominal", "wide"])
+    assert got == {"nominal": 1.0}
+    got = commands.restrict_mix(mix, ["slow", "nominal", "wide"])
+    assert got == pytest.approx({"slow": 0.7, "nominal": 0.3})
+    # Gate 0 loads a single "eval" library that no schedule entry names
+    assert commands.restrict_mix(mix, ["eval"]) == {"eval": 1.0}

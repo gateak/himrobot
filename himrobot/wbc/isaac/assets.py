@@ -136,7 +136,13 @@ def build_g1_wbc_cfg(table: dict | None = None, usd_path: str | None = None):
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, 0.0, float(scene.ROBOT_Z)),
+            # scene.BASE_NOMINAL_POS relative to each env's origin, so
+            # root_pos_w - env_origins - BASE_NOMINAL_POS is exactly the
+            # evaluator's base.position - BASE_NOMINAL_POS (= 0 at spawn):
+            # the obs slot 9:12 and the station/box rewards all compare to
+            # BASE_NOMINAL_POS. Spawning at (0, 0, z) would put every env
+            # 1.77 m from its own station.
+            pos=(float(scene.ROBOT_X), float(scene.ROBOT_Y), float(scene.ROBOT_Z)),
             joint_pos=dict(INIT_JOINT_POS),
             joint_vel={".*": 0.0},
         ),

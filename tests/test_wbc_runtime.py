@@ -49,7 +49,7 @@ def _zero_npz(tmp_path, name: str = "wbc_zero.npz") -> str:
         W1=np.zeros((256, 512)), b1=np.zeros(256),
         W2=np.zeros((128, 256)), b2=np.zeros(128),
         W3=np.zeros((15, 128)), b3=np.zeros(15),
-        rms_mean=np.zeros(141), rms_var=np.ones(141),
+        rms_mean=np.zeros(141), rms_var=np.ones(141), norm_eps=np.float64(0.0),
         obs_version=np.int64(1),
         leg_default=scene.STAND_POSE[:12].copy(),
         leg_scale=np.float64(wbc_obs.LEG_SCALE),
@@ -176,11 +176,19 @@ def _synthetic_rsl_rl_checkpoint(seed: int = 0, with_norm: bool = True) -> dict:
         # A critic sibling that export_npz must ignore, same shape convention.
         state[f"critic.{idx}.weight"] = torch.randn(d_out, d_in, dtype=torch.float64) * 0.1
         state[f"critic.{idx}.bias"] = torch.randn(d_out, dtype=torch.float64) * 0.1
-    checkpoint = {"model_state_dict": state}
+    checkpoint = {"model_state_dict": state, "iter": 100, "infos": None}
     if with_norm:
+        # rsl_rl 2.3.1 EmpiricalNormalization.state_dict(): buffers _mean /
+        # _var / _std, each (1, D), plus count (rsl_rl/modules/normalizer.py).
+        # Spread the variances over three decades so a wrong formula
+        # (sqrt(var + 1e-8) instead of std + 1e-2, or a +-10 clip) cannot
+        # hide inside the 1e-6 tolerance.
+        var = (10.0 ** torch.empty(wbc_obs.OBS_DIM, dtype=torch.float64).uniform_(-4.0, 0.5))
         checkpoint["obs_norm_state_dict"] = {
-            "mean": torch.randn(wbc_obs.OBS_DIM, dtype=torch.float64) * 0.1,
-            "var": torch.rand(wbc_obs.OBS_DIM, dtype=torch.float64) + 0.5,
+            "_mean": (torch.randn(wbc_obs.OBS_DIM, dtype=torch.float64) * 0.1).unsqueeze(0),
+            "_var": var.unsqueeze(0),
+            "_std": torch.sqrt(var).unsqueeze(0),
+            "count": torch.tensor(123456, dtype=torch.long),
         }
     return checkpoint
 
@@ -197,16 +205,114 @@ def test_export_npz_numpy_forward_matches_torch_reference(tmp_path, with_norm):
     assert int(z["obs_version"]) == wbc_obs.OBS_VERSION
     assert z["jnt_range"].shape == (scene.NUM_JOINTS, 2)
     assert z["leg_default"].shape == (12,)
+    assert float(z["norm_eps"]) == (export_npz.NORM_EPS if with_norm else 0.0)
     layers = [(z[f"W{i}"], z[f"b{i}"]) for i in range(4)]
 
     rng = np.random.default_rng(7)
-    obs_batch = rng.normal(size=(100, wbc_obs.OBS_DIM))
+    # Wide inputs (up to ~30 sigma on the small-variance slots) so a +-10
+    # clip anywhere in the numpy path would show up against the reference.
+    obs_batch = rng.normal(size=(100, wbc_obs.OBS_DIM)) * 3.0
     obs_norm = checkpoint.get("obs_norm_state_dict")
     for row in obs_batch:
-        np_out = export_npz.numpy_forward(layers, z["rms_mean"], z["rms_var"], row)
+        np_out = export_npz.numpy_forward(layers, z["rms_mean"], z["rms_var"], row, float(z["norm_eps"]))
         torch_out = export_npz.torch_forward(checkpoint["model_state_dict"], obs_norm, row)
         assert np_out.shape == (wbc_obs.ACT_DIM,)
         assert np.allclose(np_out, torch_out, rtol=0, atol=1e-6)
+
+    # The deploy runtime's own forward is the same function with the same
+    # eps read back from the npz (not a second copy of the formula).
+    monkey = NumpyWBCPolicy(str(out_path))
+    for row in obs_batch[:10]:
+        assert np.array_equal(monkey._forward(row),
+                              export_npz.numpy_forward(layers, z["rms_mean"], z["rms_var"], row, monkey.norm_eps))
+
+
+def test_export_normalizer_is_rsl_rl_formula_not_running_mean_std():
+    """Pin the normalizer formula to rsl_rl 2.3.1's EmpiricalNormalization
+    (rsl_rl/modules/normalizer.py: (x - _mean) / (_std + 1e-2), no clip) by
+    hand: one slot with a tiny variance, where sqrt(var + 1e-8) and
+    (std + 1e-2) differ by more than 2x, and one input 40 sigma out."""
+    dim = wbc_obs.OBS_DIM
+    mean = np.zeros(dim)
+    var = np.ones(dim)
+    var[0] = 1e-4  # std 0.01 -> rsl_rl divides by 0.02, RunningMeanStd by ~0.01
+    layers = [(np.eye(512, dim), np.zeros(512)), (np.eye(256, 512), np.zeros(256)),
+              (np.eye(128, 256), np.zeros(128)), (np.eye(15, 128), np.zeros(15))]
+    x = np.zeros(dim)
+    x[0] = 0.4  # 40 sigma: a +-10 clip would cap it
+    out = export_npz.numpy_forward(layers, mean, var, x, export_npz.NORM_EPS)
+    assert np.isclose(out[0], 0.4 / (0.01 + 1e-2)), out[0]  # 20.0, not 10 (clip) and not ~40
+    # Identity export (empirical_normalization off): eps 0 -> x unchanged.
+    out_id = export_npz.numpy_forward(layers, mean, np.ones(dim), x, 0.0)
+    assert np.isclose(out_id[0], 0.4)
+
+
+def test_export_rejects_unknown_normalizer_layout_instead_of_silently_exporting_identity(tmp_path):
+    checkpoint = _synthetic_rsl_rl_checkpoint(seed=5, with_norm=False)
+    checkpoint["model_state_dict"]["actor_obs_normalizer.some_new_buffer"] = torch.zeros(1, wbc_obs.OBS_DIM)
+    ckpt_path = tmp_path / "model_weird.pt"
+    torch.save(checkpoint, ckpt_path)
+    with pytest.raises(KeyError):
+        export_npz.export_npz(str(ckpt_path), str(tmp_path / "weird.npz"))
+
+
+def test_export_cli_leg_default_mocap_bakes_the_prior_mean(tmp_path):
+    checkpoint = _synthetic_rsl_rl_checkpoint(seed=4, with_norm=True)
+    ckpt_path = tmp_path / "model_200.pt"
+    torch.save(checkpoint, ckpt_path)
+    out = tmp_path / "mocap.npz"
+    export_npz.main([str(ckpt_path), str(out), "--leg-default", "mocap"])
+    z = np.load(out)
+    prior = np.load(export_npz.MOCAP_LEG_PRIOR_NPZ)["global_mean"]
+    assert np.array_equal(z["leg_default"], prior)
+    assert not np.array_equal(z["leg_default"], scene.STAND_POSE[:12])
+    policy = NumpyWBCPolicy(str(out))
+    assert np.array_equal(policy.leg_default, prior)
+
+
+def test_prev_action_slot_carries_the_raw_actor_output_like_isaac(tmp_path):
+    """Isaac feeds env.action_manager.action (the unclipped policy output)
+    into the prev-action slot; the runtime must keep the raw output too,
+    while the joint target itself is built from the +-1-clipped action."""
+    path = _zero_npz(tmp_path, name="wbc_bias.npz")
+    z = dict(np.load(path))
+    z["b3"] = np.full(15, 5.0)  # every layer zero -> actor output == b3 == 5 everywhere
+    np.savez(path, **z)
+    policy = NumpyWBCPolicy(path)
+    env = TableTennisEnv(seed=3, params=FREE_BASE_PARAMS, fixed_base=False)
+    obs = env.reset()
+    policy.reset({"serve": None, "params": env.params})
+    target = policy.act(obs)
+    assert np.allclose(policy._prev_action, 5.0)  # raw, not clipped to 1
+    jr = _jnt_range()
+    legs_expected = np.clip(scene.STAND_POSE[:12] + wbc_obs.LEG_SCALE * 1.0, jr[:12, 0], jr[:12, 1])
+    assert np.allclose(target[:12], legs_expected)  # a clipped to +1 before scaling
+    flat_next = wbc_obs.flatten(obs, policy._prev_action, scene.STAND_POSE, scene.STAND_POSE,
+                                scene.STAND_POSE, None, policy.leg_default)
+    assert np.allclose(flat_next[wbc_obs.PREV_ACTION_SLICE], 5.0)
+
+
+def test_runtime_rejects_a_checkpoint_with_another_obs_version(tmp_path):
+    path = _zero_npz(tmp_path, name="wbc_v99.npz")
+    z = dict(np.load(path))
+    z["obs_version"] = np.int64(99)
+    np.savez(path, **z)
+    with pytest.raises(ValueError):
+        NumpyWBCPolicy(path)
+
+
+def test_deploy_runtime_imports_without_torch():
+    """HIM's mujoco worker image has no torch: importing the deploy policy
+    (and, through it, himrobot.wbc.export_npz for numpy_forward) must not
+    load torch. Checked in a fresh interpreter so this session's own torch
+    import cannot mask it."""
+    import subprocess
+    import sys
+
+    code = ("import sys; import himrobot.policies.wbc_np; "
+            "print('torch' in sys.modules)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False", out.stdout
 
 
 # ---------------------------------------------------------------------------
