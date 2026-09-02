@@ -161,8 +161,16 @@ def deterministic_eval(model: ActorCritic, obs_rms: RunningMeanStd, jnt_range: n
     }
 
 
-def _det_key(det: dict[str, float]) -> tuple[float, float]:
-    """best.pt ranking: highest det_legal_rate, ties broken by det_stand_rate."""
+SELECT_MODES = ("legal", "legal_x_stand")
+
+
+def _det_key(det: dict[str, float], select: str = "legal") -> tuple[float, float]:
+    """best.pt ranking. "legal" (v1 default): highest det_legal_rate, ties by
+    det_stand_rate. "legal_x_stand": highest legal_rate * stand_rate -- v1
+    showed that ranking by legal rate alone buys returns with falls (s2:
+    62.7 % legal, 25.5 % falls vs the no-balance 21.8 %)."""
+    if select == "legal_x_stand":
+        return (det["legal_rate"] * det["stand_rate"] / 100.0, det["legal_rate"])
     return (det["legal_rate"], det["stand_rate"])
 
 
@@ -234,7 +242,9 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
           fall_penalty: float = DEFAULT_FALL_PENALTY, expert_npz: str = DEFAULT_EXPERT_NPZ,
           log_std_init: float = LOG_STD_INIT, log_std_final: float = LOG_STD_FINAL,
           rollout_steps: int = ROLLOUT_STEPS, params: dict | None = None,
-          det_eval_episodes: int = 0, det_eval_every: int = 20, det_eval_seed: int = 1001) -> dict:
+          det_eval_episodes: int = 0, det_eval_every: int = 20, det_eval_seed: int = 1001,
+          select: str = "legal", resume_from: str | None = None) -> dict:
+    assert select in SELECT_MODES, select
     os.makedirs(out, exist_ok=True)
     device = pick_device()
     torch.manual_seed(seed)
@@ -252,6 +262,12 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
     nn.init.zeros_(last_linear.weight)
     nn.init.zeros_(last_linear.bias)
     obs_rms = RunningMeanStd((BALANCE_OBS_DIM,))
+    if resume_from:
+        # Warm start: actor/critic weights and the obs normalizer from a v1
+        # checkpoint; the optimizer, log-std schedule and episode count start
+        # fresh (the schedule overwrites the loaded log_std on the first update).
+        loaded, obs_rms, _ckpt = load_checkpoint(resume_from, device)
+        model.load_state_dict(loaded.state_dict())
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -284,7 +300,7 @@ def train(n_envs: int = 16, seed: int = 0, out: str = os.path.join("work", "tt",
 
     def maybe_save_best_det(det: dict, episode: int) -> None:
         nonlocal best_det, best_det_episode
-        if best_det is None or _det_key(det) > _det_key(best_det):
+        if best_det is None or _det_key(det, select) > _det_key(best_det, select):
             best_det, best_det_episode = det, episode
             save_checkpoint(os.path.join(out, "best.pt"), model, obs_rms, episode, expert_npz, jnt_range,
                             extra={"seed": seed, "det_eval": {**det, "n_serves": det_eval_episodes,
@@ -387,6 +403,8 @@ def main(argv: list[str] | None = None) -> dict:
     parser.add_argument("--tilt-penalty", type=float, default=DEFAULT_TILT_PENALTY, help="per-step weight on tilt_rad**2")
     parser.add_argument("--alive-bonus", type=float, default=DEFAULT_ALIVE_BONUS, help="per-step reward for not having fallen yet")
     parser.add_argument("--fall-penalty", type=float, default=DEFAULT_FALL_PENALTY, help="one-off penalty when events['fell'] first latches")
+    parser.add_argument("--select", choices=SELECT_MODES, default="legal", help="best.pt ranking (see _det_key)")
+    parser.add_argument("--resume-from", type=str, default=None, help="warm start from a balance checkpoint (.pt)")
     parser.add_argument("--expert-npz", type=str, default=DEFAULT_EXPERT_NPZ, help="waist+arm expert weights (NumpyParamResidualPolicy)")
     parser.add_argument("--log-std-init", type=float, default=LOG_STD_INIT)
     parser.add_argument("--log-std-final", type=float, default=LOG_STD_FINAL, help="linear anneal target for the log-std upper bound")
@@ -405,7 +423,7 @@ def main(argv: list[str] | None = None) -> dict:
         expert_npz=args.expert_npz, log_std_init=args.log_std_init, log_std_final=args.log_std_final,
         rollout_steps=args.rollout_steps, params=json.loads(args.params),
         det_eval_episodes=args.det_eval_episodes, det_eval_every=args.det_eval_every,
-        det_eval_seed=args.det_eval_seed,
+        det_eval_seed=args.det_eval_seed, select=args.select, resume_from=args.resume_from,
     )
     if args.export:
         best_path = os.path.join(args.out, "best.pt")
