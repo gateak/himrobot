@@ -222,6 +222,17 @@ def _solve_launch_velocity(p0: np.ndarray, p1: np.ndarray, flight_time: float) -
     ])
 
 
+# Global swing-speed multiplier, read once at import (like scene.TT_ROBOT_Y):
+# TT_SWING_SPEED=0.7 caps every swing at 70 % of what the per-serve knobs ask.
+# Default 1.0 = bit-exact today. Free-base diagnostic: on an unwelded robot
+# the swing's own momentum is the tipping force (results/stance_sweep).
+_GLOBAL_SWING_SPEED = float(os.environ.get("TT_SWING_SPEED", "1.0"))
+# TT_WAIST_LIMIT="roll,pitch" (rad) tightens the IK solver's waist roll/pitch
+# bounds; absent (default) leaves the model's own limits -- bit-exact today.
+_WAIST_LIMIT = (tuple(float(v) for v in os.environ["TT_WAIST_LIMIT"].split(","))
+                if os.environ.get("TT_WAIST_LIMIT") else None)
+
+
 # ---------------------------------------------------------------------------
 # Per-serve modulation ("serve params"): a small set of scalars that retune
 # this hitter for one whole episode without touching its structure. Every
@@ -589,6 +600,14 @@ class IKHitterPolicy(Policy):
         self._ik_jnt_range = np.array(
             [self._ik_model.jnt_range[self._jid(n)] for n in IK_JOINT_NAMES]
         )
+        if _WAIST_LIMIT is not None:
+            # Free-base diagnostic (results/waist_limit): the bolted-pelvis
+            # solver leans the torso 30 deg (the waist roll/pitch limit) mid
+            # swing, which topples an unwelded robot ~1 s later. Tighten the
+            # solver's waist roll/pitch bounds so the arm absorbs the reach.
+            for name, lim in (("waist_roll_joint", _WAIST_LIMIT[0]), ("waist_pitch_joint", _WAIST_LIMIT[1])):
+                i = IK_JOINT_NAMES.index(name)
+                self._ik_jnt_range[i] = [max(self._ik_jnt_range[i][0], -lim), min(self._ik_jnt_range[i][1], lim)]
         self._paddle_body_id = mujoco.mj_name2id(self._ik_model, mujoco.mjtObj.mjOBJ_BODY, "paddle")
         self._blade_gid = mujoco.mj_name2id(self._ik_model, mujoco.mjtObj.mjOBJ_GEOM, "paddle_blade")
         assert self._paddle_body_id >= 0 and self._blade_gid >= 0
@@ -751,7 +770,7 @@ class IKHitterPolicy(Policy):
         if speed < 1e-6:
             swing_vel = np.array([2.0, 0.0, 0.5])  # degenerate fallback: a modest forward-up push
             speed = np.linalg.norm(swing_vel)
-        speed_cap = shape["speed_cap"] * self.swing_speed_scale
+        speed_cap = shape["speed_cap"] * self.swing_speed_scale * _GLOBAL_SWING_SPEED
         if speed > speed_cap:
             # Cap the *commanded Cartesian target's* speed: the raw
             # risk_preference * (v_target - v_ball_in) magnitude can run to

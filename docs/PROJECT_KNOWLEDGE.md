@@ -148,8 +148,16 @@ shift), fresh vs warm-started from s2. **Result (600 serves each, honest scene):
 falling** — v3 alone 61.5 % legal / **75.7 % falls**; best balance run c 39.2 % / 60.3 % falls, a 56.7 % / 73.7 %.
 The 55 % stand rates during training were overfits of the 40-serve selection set. Read: the swing's reaction
 momentum is not absorbable by ±0.15–0.40 rad leg corrections around STAND_POSE; balance here is whole-body
-(Isaac Lab lane, mocap prior). Next, free: a stance sweep (wider/lower STAND_POSE) of the plain expert.
-`results/balance_v1_2/RESULT.md`.
+(Isaac Lab lane, mocap prior). `results/balance_v1_2/RESULT.md`.
+**Root cause found (2026-09-02, `results/waist_lock/RESULT.md`): the falls are the hitter's torso, not the legs.**
+Holding STAND_POSE the G1 stands 3 s at 0.1° tilt; swing speed 35–100 % changes nothing; falls land ~1 s after
+the return; in every falling serve the IK drove waist roll/pitch to their 0.52 rad limits mid swing. New knobs,
+all default = today: `TT_WAIST_LIMIT="roll,pitch"` (solver bounds), `TT_LEG_POSE` (stance), `TT_SWING_SPEED`
+(global cap multiplier); and on the honest scene the paddle now meets only the ball (no propping). **Waist locked,
+honest free base, 600 serves: 45.3 % legal / 3.5 % target / 0.68 m, falls 14.8 %** (waist free: 61.5 % / 75.7 %
+falls). Even ±0.1 rad of waist still topples it (waist *motion*, not lean). Stance sweep: crouch+wide lifts
+returns (57 → 72 %) but not standing; with the waist locked the crouch is worse (44 % falls). Next, free: retrain
+the 20-knob parameter residual with the waist locked on the honest free-base scene so the arm earns the reach back.
 
 **Hitter v3 retrain + ship (2026-08-30 evening).** Two warm-started runs at the stance with `--depth-bonus 3`
 settled the pre-registered bar: legal returns are stance-limited (best 79.8 % vs 77.8 % unretrained -- the welded-scene

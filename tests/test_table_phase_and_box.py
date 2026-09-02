@@ -34,8 +34,10 @@ def test_phase_through_keeps_ball_and_paddle_contacts_and_drops_robot_table():
     assert _collides(m, "ball", "table_top")
     assert _collides(m, "ball", "net")
     assert _collides(m, "ball", "floor")
-    assert _collides(m, "paddle_blade", "table_top")
     assert _collides(m, "ball", "paddle_blade")
+    # the paddle meets the ball and nothing else: no propping up on it
+    assert not _collides(m, "paddle_blade", "table_top")
+    assert not _collides(m, "paddle_blade", "floor")
     # a robot collision geom vs the table / net: no; vs the floor: yes
     pelvis = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
     robot_geoms = [i for i in range(m.ngeom) if m.geom_bodyid[i] == pelvis and m.geom_contype[i]]

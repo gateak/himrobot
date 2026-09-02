@@ -261,10 +261,13 @@ def _build_xml(fixed_base: bool, paddle: bool, robot_table_collision: bool = Tru
                                       '<geom name="table_top" type="box" contype="2" conaffinity="2"', 1)
         scene_xml = scene_xml.replace('<geom name="net" type="box"',
                                       '<geom name="net" type="box" contype="2" conaffinity="2"', 1)
+        # Ball: bits 1|2|4 -> meets robot (1), table/net (2), paddle (4).
+        # Paddle blade: bit 4 only -> meets the ball and nothing else (no
+        # propping the body up on the paddle against table or floor).
         scene_xml = scene_xml.replace('<geom name="ball" type="sphere"',
-                                      '<geom name="ball" type="sphere" contype="3" conaffinity="3"', 1)
+                                      '<geom name="ball" type="sphere" contype="7" conaffinity="7"', 1)
         text = text.replace('<geom name="paddle_blade" type="cylinder"',
-                            '<geom name="paddle_blade" type="cylinder" contype="3" conaffinity="3"', 1)
+                            '<geom name="paddle_blade" type="cylinder" contype="4" conaffinity="4"', 1)
     text = text.replace("</worldbody>", scene_xml + "  </worldbody>", 1)
     text = text.replace("</mujoco>", _contact_xml(paddle) + "</mujoco>", 1)
     return text
